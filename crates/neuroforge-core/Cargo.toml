@@ -7,7 +7,7 @@ license = "LicenseRef-AllRightsReserved"
 publish = false
 
 [dependencies]
-ndarray = "0.15"
+ndarray = "0.17"
 
 [lib]
 name = "neuroforge_core"
