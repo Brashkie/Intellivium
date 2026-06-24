@@ -1,0 +1,98 @@
+//! Puente N-API: expone el motor de `neuroforge-core` a Node.js.
+//!
+//! Estrategia: el grafo de autograd vive ENTERO en Rust. Hacia JS solo cruzan
+//! tensores planos (Float64Array + shape) y operaciones de alto nivel
+//! (construir modelo, train, predict). Así no se marshalea el grafo por op,
+//! que sería lento y frágil.
+
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
+use ndarray::Array2;
+use neuroforge_core::{Activation, Dense, Model, Rng};
+
+/// Especificación de una capa densa, recibida desde JS como objeto.
+#[napi(object)]
+pub struct LayerSpec {
+    pub input_dim: u32,
+    pub output_dim: u32,
+    pub activation: String,
+}
+
+#[napi(js_name = "Model")]
+pub struct JsModel {
+    inner: Model,
+    out_dim: u32,
+}
+
+#[napi]
+impl JsModel {
+    #[napi(constructor)]
+    pub fn new(layers: Vec<LayerSpec>, seed: Option<f64>) -> Result<Self> {
+        if layers.is_empty() {
+            return Err(Error::from_reason("el modelo necesita al menos 1 capa"));
+        }
+        let mut rng = Rng::new(seed.unwrap_or(42.0) as u64);
+        let mut built = Vec::with_capacity(layers.len());
+        let mut out_dim = 0u32;
+        for l in &layers {
+            let act = Activation::from_str(&l.activation);
+            built.push(Dense::new(
+                l.input_dim as usize,
+                l.output_dim as usize,
+                act,
+                &mut rng,
+            ));
+            out_dim = l.output_dim;
+        }
+        Ok(JsModel {
+            inner: Model::new(built),
+            out_dim,
+        })
+    }
+
+    /// Entrena (SGD + MSE). Devuelve el historial de loss por época.
+    #[napi]
+    pub fn train(
+        &mut self,
+        x: Float64Array,
+        x_rows: u32,
+        x_cols: u32,
+        y: Float64Array,
+        y_rows: u32,
+        y_cols: u32,
+        epochs: u32,
+        lr: f64,
+    ) -> Result<Vec<f64>> {
+        let xm = to_array2(&x, x_rows as usize, x_cols as usize)?;
+        let ym = to_array2(&y, y_rows as usize, y_cols as usize)?;
+        let hist = self.inner.train(&xm, &ym, epochs as usize, lr as f32);
+        Ok(hist.into_iter().map(|v| v as f64).collect())
+    }
+
+    /// Predice. Devuelve un Float64Array plano (row-major) de shape (x_rows, out_dim).
+    #[napi]
+    pub fn predict(&self, x: Float64Array, x_rows: u32, x_cols: u32) -> Result<Float64Array> {
+        let xm = to_array2(&x, x_rows as usize, x_cols as usize)?;
+        let out = self.inner.predict(&xm);
+        let flat: Vec<f64> = out.iter().map(|&v| v as f64).collect();
+        Ok(Float64Array::new(flat))
+    }
+
+    #[napi(getter)]
+    pub fn output_dim(&self) -> u32 {
+        self.out_dim
+    }
+}
+
+fn to_array2(data: &Float64Array, rows: usize, cols: usize) -> Result<Array2<f32>> {
+    let slice = data.as_ref();
+    if slice.len() != rows * cols {
+        return Err(Error::from_reason(format!(
+            "shape inválido: len={} pero rows*cols={}",
+            slice.len(),
+            rows * cols
+        )));
+    }
+    let v: Vec<f32> = slice.iter().map(|&x| x as f32).collect();
+    Array2::from_shape_vec((rows, cols), v).map_err(|e| Error::from_reason(e.to_string()))
+}

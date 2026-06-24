@@ -1,0 +1,59 @@
+{
+  "name": "neuroforge",
+  "version": "0.1.0",
+  "description": "Framework de deep learning con núcleo en Rust, nativo de Node.js. Sin C/C++.",
+  "license": "UNLICENSED",
+  "author": "Brashkie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Brashkie/NeuroForge.git"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": ["lib", "native"],
+  "napi": {
+    "name": "neuroforge",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "x86_64-pc-windows-msvc",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu"
+      ]
+    }
+  },
+  "scripts": {
+    "build:native": "napi build --release --platform -p neuroforge-napi --cargo-name neuroforge_napi --js index.js native",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:native && npm run build:ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "core:test": "cargo test -p neuroforge-core",
+    "core:xor": "cargo run --release -p neuroforge-core --example xor",
+    "example": "node examples/xor.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@napi-rs/cli": "^2.18.4",
+    "@types/node": "^22.20.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.8"
+  }
+}

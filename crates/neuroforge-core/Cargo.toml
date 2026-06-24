@@ -1,0 +1,14 @@
+[package]
+name = "neuroforge-core"
+version = "0.1.0"
+edition = "2021"
+description = "NeuroForge core: tensor + reverse-mode autograd + nn (pure Rust, no C/C++)"
+license = "LicenseRef-AllRightsReserved"
+publish = false
+
+[dependencies]
+ndarray = "0.15"
+
+[lib]
+name = "neuroforge_core"
+path = "src/lib.rs"

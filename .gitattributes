@@ -1,0 +1,19 @@
+# Normaliza todo el texto a LF dentro del repo.
+# Evita los warnings "LF will be replaced by CRLF" en Windows y mantiene
+# consistencia entre colaboradores sin importar el sistema operativo.
+* text=auto eol=lf
+
+# ── Binarios: nunca aplicar conversión de fin de línea ──
+*.node binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.wasm binary
+
+# ── Scripts de Windows que sí requieren CRLF ──
+*.bat text eol=crlf
+*.cmd text eol=crlf
