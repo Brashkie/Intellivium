@@ -1,11 +1,11 @@
 //! Prueba real del motor: aprender XOR (problema no lineal clásico).
-//! Si esto converge, el autograd + backprop están bien.
+//! Ahora con Adam + BCE. Si converge, el autograd + optimizador están bien.
 
 use ndarray::array;
-use neuroforge_core::{Activation, Dense, Model, Rng};
+use neuroforge_core::{Activation, Dense, Loss, Model, Optimizer, Rng, TrainConfig};
 
 fn main() {
-    let mut rng = Rng::new(42);
+    let mut rng = Rng::new(7);
 
     let x = array![[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
     let y = array![[0.0], [1.0], [1.0], [0.0]];
@@ -15,8 +15,15 @@ fn main() {
         Dense::new(8, 1, Activation::Sigmoid, &mut rng),
     ]);
 
-    let history = model.train(&x, &y, 4000, 0.5);
+    let cfg = TrainConfig {
+        epochs: 1500,
+        lr: 0.05,
+        loss: Loss::Bce,
+        optimizer: Optimizer::adam_default(),
+    };
+    let history = model.train(&x, &y, &cfg);
 
+    println!("optimizador : Adam | loss: BCE");
     println!("loss inicial : {:.5}", history.first().unwrap());
     println!("loss final   : {:.5}", history.last().unwrap());
     println!("\npredicciones (esperado: 0, 1, 1, 0):");

@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ NeuroForge
+# ⚡ Intellivium
 
 **Framework de Deep Learning de alto rendimiento con núcleo en Rust, nativo del ecosistema Node.js.**
 
@@ -8,11 +8,11 @@
 
 <br/>
 
-[![status](https://img.shields.io/badge/estado-alpha%20v0.1-orange)](https://github.com/Brashkie/NeuroForge)
+[![npm](https://img.shields.io/npm/v/intellivium?logo=npm)](https://www.npmjs.com/package/intellivium)
 [![core](https://img.shields.io/badge/núcleo-Rust-000000?logo=rust)](https://www.rust-lang.org/)
 [![runtime](https://img.shields.io/badge/runtime-Node.js%2018%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![bindings](https://img.shields.io/badge/bindings-N--API-green)](https://napi.rs/)
-[![license](https://img.shields.io/badge/licencia-Todos%20los%20derechos%20reservados-red)](#-licencia)
+[![license](https://img.shields.io/badge/licencia-Apache--2.0-blue)](#-licencia)
 
 [English](./README.md) · **Español**
 
@@ -22,7 +22,7 @@
 
 ## Resumen
 
-**NeuroForge** es un framework de deep learning cuyo núcleo numérico está escrito enteramente en **Rust** y expuesto a JavaScript/TypeScript mediante **N-API**. El objetivo: la potencia de un motor ML nativo con la comodidad del ecosistema npm: `npm install`, importar y entrenar — con binarios precompilados por plataforma y **sin código C/C++, sin Python y sin VM embebida**.
+**Intellivium** es un framework de deep learning cuyo núcleo numérico está escrito enteramente en **Rust** y expuesto a JavaScript/TypeScript mediante **N-API**. El objetivo: la potencia de un motor ML nativo con la comodidad del ecosistema npm: `npm install`, importar y entrenar — con binarios precompilados por plataforma y **sin código C/C++, sin Python y sin VM embebida**.
 
 Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingeniería deliberada: **un solo lenguaje nativo (Rust)** para el motor, **TypeScript** para el API público, y **Zig** reservado estrictamente para futuros kernels calientes.
 
@@ -30,12 +30,12 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ---
 
-## ✨ Por qué NeuroForge
+## ✨ Por qué Intellivium
 
 | | |
 |---|---|
 | 🦀 **Núcleo en Rust** | Seguro en memoria, rápido, con un motor de autograd reverse-mode sobre *tape*, hecho desde cero. |
-| 📦 **Nativo de Node** | Se distribuye como binarios N-API precompilados. El usuario hace `npm install`, sin compilar nada. |
+| 📦 **Nativo de Node** | Se distribuye como binarios N-API precompilados: `npm install` y listo, sin compilar nada. |
 | 🧩 **Modular** | Separación limpia: motor (`neuroforge-core`) ↔ bindings (`neuroforge-napi`) ↔ API (`ts/`). |
 | 🪶 **Cero deps pesadas** | Sin intérprete de Python, sin runtime de Julia, sin libtorch. Todo el motor es un solo addon nativo. |
 | 🔓 **API TypeScript-first** | Superficie totalmente tipada y ergonómica, con sabor a JS moderno. |
@@ -45,12 +45,12 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **Alpha — v0.1.** El motor es real, está probado y entrena. La visión grande de abajo es un roadmap, no una afirmación actual.
+> **v0.2.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
 - Operaciones: `matmul`, `add` con broadcast de bias, `relu`, `sigmoid`, `tanh`, `MSE`.
-- Capas `Dense` con inicialización He, `Model` secuencial, SGD plano.
+- Capas `Dense` con inicialización He, `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE y BCE**.
 - Bindings N-API + API TypeScript tipado.
 - Validado de punta a punta en XOR (no lineal): **loss 0.247 → 0.0002**.
 
@@ -59,11 +59,11 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 ## 🚀 Inicio rápido
 
 ```bash
-npm install neuroforge
+npm install intellivium
 ```
 
 ```ts
-import { tensor, dense, Model } from "neuroforge";
+import { tensor, dense, Model } from "intellivium";
 
 // XOR — la prueba no lineal clásica
 const X = tensor([[0, 0], [0, 1], [1, 0], [1, 1]]);
@@ -74,7 +74,12 @@ const model = new Model([
   dense(8, 1, "sigmoid"),
 ]);
 
-const history = await model.train(X, y, { epochs: 4000, lr: 0.5 });
+const history = await model.train(X, y, {
+  epochs: 1500,
+  lr: 0.05,
+  optimizer: "adam",
+  loss: "bce",
+});
 console.log("loss final:", history.at(-1));
 
 const pred = model.predict(X);
@@ -97,7 +102,7 @@ flowchart TD
     end
     subgraph CORE["neuroforge-core (Rust puro)"]
         C["Tape de autograd<br/>matmul · add · relu · sigmoid · tanh · mse"]
-        D["nn: Dense · Model · SGD"]
+        D["nn: Dense · Model · SGD/Adam"]
         E["(futuro) Kernels SIMD en Zig"]
     end
     A -->|Float64Array + shape| B
@@ -109,7 +114,7 @@ flowchart TD
 **Estructura**
 
 ```
-NeuroForge/
+Intellivium/
 ├── crates/
 │   ├── neuroforge-core/    # motor puro-Rust: autograd + nn  ← funciona hoy
 │   │   ├── src/tape.rs     #   AD reverse-mode (el corazón)
@@ -146,8 +151,8 @@ npm test
 El motor es la base. El framework crece desde aquí.
 
 **Siguiente**
-- [ ] Optimizador Adam
-- [ ] Losses BCE / Cross-Entropy
+- [x] Optimizador Adam
+- [x] Losses BCE / Cross-Entropy
 - [ ] Entrenamiento por mini-batches y data loaders
 - [ ] `save` / `load` de modelos (serialización de pesos)
 
@@ -174,13 +179,13 @@ Se aceptan issues, ideas y pull requests. Para cambios grandes, abre primero un 
 
 ## ⚠️ Licencia
 
-**Todos los derechos reservados.** Este proyecto no tiene licencia pública. No se permite la reutilización, modificación ni redistribución sin permiso explícito del autor.
+**[Apache License 2.0](./LICENSE).** Puedes usar, modificar y distribuir este software bajo los términos de la licencia Apache 2.0, que incluye una concesión de patentes. Copyright © 2026 Brashkie.
 
 ---
 
 <div align="center">
 
-⭐ **Si NeuroForge te resulta útil, considera darle una estrella al repo.**
+⭐ **Si Intellivium te resulta útil, considera darle una estrella al repo.**
 
 Hecho por [Brashkie](https://github.com/Brashkie)
 

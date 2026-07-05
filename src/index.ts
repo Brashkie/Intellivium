@@ -5,7 +5,12 @@
 
 export { Tensor, tensor } from "./tensor.js";
 export { dense, type ActivationName, type LayerSpec } from "./layers.js";
-export { Model, type TrainOptions } from "./model.js";
+export {
+  Model,
+  type TrainOptions,
+  type OptimizerName,
+  type LossName,
+} from "./model.js";
 
 import { dense } from "./layers.js";
 import { Model } from "./model.js";

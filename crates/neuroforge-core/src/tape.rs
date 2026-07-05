@@ -14,7 +14,10 @@ enum Op {
     Sigmoid(usize),
     Tanh(usize),
     Mse(usize, usize),     // pred, target -> escalar (1,1)
+    Bce(usize, usize),     // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
 }
+
+const EPS: f32 = 1e-7;
 
 /// Una cinta de cómputo. Cada `Var` es un índice (usize) hacia esta cinta.
 pub struct Tape {
@@ -90,6 +93,21 @@ impl Tape {
         self.push(v, Op::Mse(pred, target))
     }
 
+    /// Binary Cross-Entropy -> nodo escalar (1,1). `pred` debe estar en [0,1]
+    /// (típicamente salida de sigmoid). Se hace clamp por estabilidad numérica.
+    pub fn bce(&mut self, pred: usize, target: usize) -> usize {
+        let p = &self.values[pred];
+        let t = &self.values[target];
+        let n = p.len() as f32;
+        let mut acc = 0.0;
+        for (&pi, &ti) in p.iter().zip(t.iter()) {
+            let pc = pi.clamp(EPS, 1.0 - EPS);
+            acc += -(ti * pc.ln() + (1.0 - ti) * (1.0 - pc).ln());
+        }
+        let v = Array2::from_elem((1, 1), acc / n);
+        self.push(v, Op::Bce(pred, target))
+    }
+
     /// Backprop desde `out` (típicamente la loss escalar). Devuelve el gradiente
     /// de CADA nodo de la cinta, indexado por su id.
     pub fn backward(&self, out: usize) -> Vec<Array2<f32>> {
@@ -135,6 +153,17 @@ impl Tape {
                     let diff = &self.values[p] - &self.values[t];
                     let n = diff.len() as f32;
                     let dp = diff.mapv(|d| d * 2.0 / n * gv);
+                    grads[p] = &grads[p] + &dp;
+                }
+                Op::Bce(p, t) => {
+                    let gv = grads[i][[0, 0]];
+                    let pv = &self.values[p];
+                    let tv = &self.values[t];
+                    let n = pv.len() as f32;
+                    let dp = ndarray::Zip::from(pv).and(tv).map_collect(|&pi, &ti| {
+                        let pc = pi.clamp(EPS, 1.0 - EPS);
+                        (pc - ti) / (pc * (1.0 - pc)) / n * gv
+                    });
                     grads[p] = &grads[p] + &dp;
                 }
             }

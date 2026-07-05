@@ -1,42 +1,77 @@
 {
-  "name": "neuroforge",
-  "version": "0.1.0",
-  "description": "Framework de deep learning con núcleo en Rust, nativo de Node.js. Sin C/C++.",
-  "license": "UNLICENSED",
+  "name": "intellivium",
+  "version": "0.2.0",
+  "description": "Intellivium: framework de deep learning con núcleo en Rust, nativo de Node.js. Sin C/C++.",
+  "license": "Apache-2.0",
   "author": "Brashkie",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Brashkie/NeuroForge.git"
+    "url": "git+https://github.com/Brashkie/Intellivium.git"
   },
   "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "main": "./lib/index.cjs",
+  "module": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "keywords": [
+    "deep-learning",
+    "machine-learning",
+    "neural-network",
+    "autograd",
+    "rust",
+    "napi",
+    "tensor",
+    "intellivium"
+  ],
+  "homepage": "https://github.com/Brashkie/Intellivium#readme",
+  "bugs": {
+    "url": "https://github.com/Brashkie/Intellivium/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
-      "types": "./lib/index.d.ts",
-      "import": "./lib/index.js"
+      "import": {
+        "types": "./lib/index.d.ts",
+        "default": "./lib/index.js"
+      },
+      "require": {
+        "types": "./lib/index.d.cts",
+        "default": "./lib/index.cjs"
+      }
     }
   },
   "engines": {
     "node": ">=18"
   },
-  "files": ["lib", "native"],
+  "files": ["index.cjs", "index.d.cts", "lib"],
   "napi": {
-    "name": "neuroforge",
+    "name": "intellivium",
+    "package": {
+      "name": "intellivium"
+    },
     "triples": {
-      "defaults": true,
+      "defaults": false,
       "additional": [
-        "x86_64-pc-windows-msvc",
         "x86_64-apple-darwin",
         "aarch64-apple-darwin",
-        "x86_64-unknown-linux-gnu"
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-linux-android",
+        "armv7-linux-androideabi"
       ]
     }
   },
   "scripts": {
-    "build:native": "napi build --release --platform -p neuroforge-napi --cargo-name neuroforge_napi --js index.js native",
-    "build:ts": "tsc -p tsconfig.json",
+    "build:native": "napi build --platform --release -p neuroforge-napi --cargo-name neuroforge_napi --js index.cjs --dts index.d.cts .",
+    "build:ts": "tsup",
     "build": "npm run build:native && npm run build:ts",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm --skip-gh-release",
+    "version": "napi version",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
@@ -51,9 +86,13 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@napi-rs/cli": "^2.18.4",
-    "@types/node": "^22.20.0",
+    "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.8",
     "typescript": "^5.6.0",
+    "tsup": "^8.5.0",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "tsup": "^8.5.1"
   }
 }

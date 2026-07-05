@@ -1,18 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { dense } from "../src/layers.js";
+import { Model } from "../src/model.js";
+import { getNativeModel } from "../src/native.js";
 import { tensor } from "../src/tensor.js";
 
-// Estos tests requieren el addon nativo compilado (`npm run build:native`).
-// Si no está, se omiten en vez de fallar.
-let Model: typeof import("../src/model.js").Model | undefined;
+// ¿Está compilado el addon nativo? Si no, se omiten los tests de integración.
+let nativeAvailable = false;
 try {
-  ({ Model } = await import("../src/model.js"));
+  getNativeModel();
+  nativeAvailable = true;
 } catch {
-  Model = undefined;
+  nativeAvailable = false;
 }
 
-describe.skipIf(!Model)("Model (integración, requiere .node)", () => {
-  it("aprende XOR (no lineal)", async () => {
+describe("Model (validación, sin nativo)", () => {
+  it("lanza error si no hay capas", () => {
+    expect(() => new Model([])).toThrow();
+  });
+});
+
+describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => {
+  it("aprende XOR con Adam + BCE", async () => {
     const X = tensor([
       [0, 0],
       [0, 1],
@@ -21,17 +29,19 @@ describe.skipIf(!Model)("Model (integración, requiere .node)", () => {
     ]);
     const y = tensor([[0], [1], [1], [0]]);
 
-    // biome-ignore lint/style/noNonNullAssertion: guard arriba garantiza Model
-    const model = new Model!([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
-
-    const history = await model.train(X, y, { epochs: 4000, lr: 0.5 });
-    const finalLoss = history.at(-1) ?? Number.POSITIVE_INFINITY;
-    expect(finalLoss).toBeLessThan(0.05);
+    const model = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const history = await model.train(X, y, {
+      epochs: 1500,
+      lr: 0.05,
+      optimizer: "adam",
+      loss: "bce",
+    });
+    expect(history.at(-1) ?? Number.POSITIVE_INFINITY).toBeLessThan(0.1);
 
     const pred = model.predict(X).toArray();
-    expect(pred[0][0]).toBeLessThan(0.5); // 0 XOR 0 = 0
-    expect(pred[1][0]).toBeGreaterThan(0.5); // 0 XOR 1 = 1
-    expect(pred[2][0]).toBeGreaterThan(0.5); // 1 XOR 0 = 1
-    expect(pred[3][0]).toBeLessThan(0.5); // 1 XOR 1 = 0
+    expect(pred[0][0]).toBeLessThan(0.5);
+    expect(pred[1][0]).toBeGreaterThan(0.5);
+    expect(pred[2][0]).toBeGreaterThan(0.5);
+    expect(pred[3][0]).toBeLessThan(0.5);
   });
 });

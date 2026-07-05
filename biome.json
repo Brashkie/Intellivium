@@ -6,7 +6,17 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": ["lib/**", "native/**", "target/**", "node_modules/**", "*.node"]
+    "ignore": [
+      "lib/**",
+      "native/**",
+      "npm/**",
+      "artifacts/**",
+      "index.js",
+      "index.d.ts",
+      "target/**",
+      "node_modules/**",
+      "*.node"
+    ]
   },
   "organizeImports": {
     "enabled": true

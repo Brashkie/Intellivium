@@ -1,0 +1,35 @@
+# El paquete publicado en npm solo lleva el SDK compilado + el binding.
+# Con el allowlist "files" de package.json (index.cjs, index.d.cts, lib),
+# npm ya restringe el contenido; este archivo evita además que use .gitignore
+# y excluya por error lib/ o el binding.
+
+# ─── Fuentes y crates (no se publican) ───
+/crates
+/src
+/tests
+/examples
+/docs
+/.github
+/npm
+/target
+/artifacts
+/coverage
+
+# ─── Configs de desarrollo ───
+*.rs
+Cargo.toml
+Cargo.lock
+rustfmt.toml
+biome.json
+tsup.config.ts
+vitest.config.ts
+tsconfig.json
+.editorconfig
+.gitattributes
+.gitignore
+.npmignore
+
+# ─── Docs internas (README.md y LICENSE sí se incluyen) ───
+NEUROFORGE_BUILD.md
+CONTRIBUTING.md
+CHANGELOG.md

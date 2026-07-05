@@ -1,9 +1,9 @@
 [package]
 name = "neuroforge-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "NeuroForge core: tensor + reverse-mode autograd + nn (pure Rust, no C/C++)"
-license = "LicenseRef-AllRightsReserved"
+license = "Apache-2.0"
 publish = false
 
 [dependencies]

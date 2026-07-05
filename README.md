@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ NeuroForge
+# ⚡ Intellivium
 
 **A high-performance Deep Learning framework with a Rust core, native to the Node.js ecosystem.**
 
@@ -8,11 +8,11 @@
 
 <br/>
 
-[![status](https://img.shields.io/badge/status-alpha%20v0.1-orange)](https://github.com/Brashkie/NeuroForge)
+[![npm](https://img.shields.io/npm/v/intellivium?logo=npm)](https://www.npmjs.com/package/intellivium)
 [![core](https://img.shields.io/badge/core-Rust-000000?logo=rust)](https://www.rust-lang.org/)
 [![runtime](https://img.shields.io/badge/runtime-Node.js%2018%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![bindings](https://img.shields.io/badge/bindings-N--API-green)](https://napi.rs/)
-[![license](https://img.shields.io/badge/license-All%20Rights%20Reserved-red)](#-license)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](#-license)
 
 **English** · [Español](./README.es.md)
 
@@ -22,7 +22,7 @@
 
 ## Overview
 
-**NeuroForge** is a deep learning framework whose numerical core is written entirely in **Rust** and exposed to JavaScript/TypeScript through **N-API**. The goal is the power of a native ML engine with the ergonomics of the npm ecosystem: `npm install`, import, and train — with precompiled binaries per platform and **no C/C++ source, no Python, and no embedded VM**.
+**Intellivium** is a deep learning framework whose numerical core is written entirely in **Rust** and exposed to JavaScript/TypeScript through **N-API**. The goal is the power of a native ML engine with the ergonomics of the npm ecosystem: `npm install`, import, and train — with precompiled binaries per platform and **no C/C++ source, no Python, and no embedded VM**.
 
 It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberate engineering choice: **one native language (Rust)** for the engine, **TypeScript** for the public API, and **Zig** reserved strictly for future hot kernels.
 
@@ -30,12 +30,12 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ---
 
-## ✨ Why NeuroForge
+## ✨ Why Intellivium
 
 | | |
 |---|---|
 | 🦀 **Rust core** | Memory-safe, fast, with a tape-based reverse-mode autograd engine built from scratch. |
-| 📦 **Node-native** | Distributed as prebuilt N-API binaries. `npm install` and go — no compiler required by users. |
+| 📦 **Node-native** | Ships as prebuilt N-API binaries: `npm install` and go — no compiler required by users. |
 | 🧩 **Modular** | Clean separation: engine (`neuroforge-core`) ↔ bindings (`neuroforge-napi`) ↔ API (`ts/`). |
 | 🪶 **Zero heavyweight deps** | No Python interpreter, no Julia runtime, no libtorch. The whole engine is one native addon. |
 | 🔓 **TypeScript-first API** | Fully typed, ergonomic surface that reads like modern JS. |
@@ -45,12 +45,12 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ## 🚦 Project Status
 
-> **Alpha — v0.1.** The engine is real, tested, and trains. The grand vision below is a roadmap, not a current claim.
+> **v0.2.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
 
 **Available today** ✅
 - Reverse-mode automatic differentiation (Wengert tape, no `Rc<RefCell>`).
 - Ops: `matmul`, broadcasted bias `add`, `relu`, `sigmoid`, `tanh`, `MSE`.
-- `Dense` layers with He initialization, sequential `Model`, plain SGD.
+- `Dense` layers with He initialization, sequential `Model`, **SGD & Adam** optimizers, **MSE & BCE** losses.
 - N-API bindings + typed TypeScript API.
 - Validated end-to-end on the XOR problem (non-linear): **loss 0.247 → 0.0002**.
 
@@ -59,11 +59,11 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 ## 🚀 Quickstart
 
 ```bash
-npm install neuroforge
+npm install intellivium
 ```
 
 ```ts
-import { tensor, dense, Model } from "neuroforge";
+import { tensor, dense, Model } from "intellivium";
 
 // XOR — the classic non-linear sanity check
 const X = tensor([[0, 0], [0, 1], [1, 0], [1, 1]]);
@@ -74,7 +74,12 @@ const model = new Model([
   dense(8, 1, "sigmoid"),
 ]);
 
-const history = await model.train(X, y, { epochs: 4000, lr: 0.5 });
+const history = await model.train(X, y, {
+  epochs: 1500,
+  lr: 0.05,
+  optimizer: "adam",
+  loss: "bce",
+});
 console.log("final loss:", history.at(-1));
 
 const pred = model.predict(X);
@@ -97,7 +102,7 @@ flowchart TD
     end
     subgraph CORE["neuroforge-core (pure Rust)"]
         C["Autograd tape<br/>matmul · add · relu · sigmoid · tanh · mse"]
-        D["nn: Dense · Model · SGD"]
+        D["nn: Dense · Model · SGD/Adam"]
         E["(future) Zig SIMD kernels"]
     end
     A -->|Float64Array + shape| B
@@ -109,7 +114,7 @@ flowchart TD
 **Layout**
 
 ```
-NeuroForge/
+Intellivium/
 ├── crates/
 │   ├── neuroforge-core/    # pure-Rust engine: autograd + nn  ← works today
 │   │   ├── src/tape.rs     #   reverse-mode AD (the heart)
@@ -146,8 +151,8 @@ npm test
 The engine is the foundation. The framework grows from here.
 
 **Next**
-- [ ] Adam optimizer
-- [ ] BCE / Cross-Entropy losses
+- [x] Adam optimizer
+- [x] BCE / Cross-Entropy losses
 - [ ] Mini-batch training & data loaders
 - [ ] Model `save` / `load` (weights serialization)
 
@@ -174,13 +179,13 @@ Issues, ideas and pull requests are welcome. For substantial changes, open an is
 
 ## ⚠️ License
 
-**All rights reserved.** This project has no public license. Reuse, modification, or redistribution is **not permitted** without explicit permission from the author.
+**[Apache License 2.0](./LICENSE).** You may use, modify, and distribute this software under the terms of the Apache 2.0 license, including a patent grant. Copyright © 2026 Brashkie.
 
 ---
 
 <div align="center">
 
-⭐ **If NeuroForge is useful to you, consider starring the repo.**
+⭐ **If Intellivium is useful to you, consider starring the repo.**
 
 Built by [Brashkie](https://github.com/Brashkie)
 

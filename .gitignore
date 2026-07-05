@@ -1,10 +1,10 @@
-# ───────────── Rust ─────────────
+# ═══════════════ Rust ═══════════════
 /target
 **/*.rs.bk
 *.pdb
 Cargo.lock
 
-# ───────────── Node ─────────────
+# ═══════════════ Node ═══════════════
 node_modules/
 .npm
 .pnp.*
@@ -13,23 +13,36 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# ───────────── Build output ─────────────
+# ═══════════════ Build output (SDK) ═══════════════
 /lib
-/native
-*.node
+/dist
 *.tsbuildinfo
 
-# ───────────── Tests / coverage ─────────────
+# ═══════════════ Binding nativo (napi) ═══════════════
+# El binding se genera en la raíz al compilar; nunca se commitea.
+/index.cjs
+/index.d.cts
+/index.js
+/index.d.ts
+*.node
+# Artefactos descargados en CI + .node dentro de los sub-paquetes npm/
+/artifacts
+npm/**/*.node
+
+# ═══════════════ Tests / coverage ═══════════════
 /coverage
 .nyc_output
 *.lcov
 
-# ───────────── Env / secrets ─────────────
+# ═══════════════ Empaquetado ═══════════════
+*.tgz
+
+# ═══════════════ Env / secrets ═══════════════
 .env
 .env.*
 !.env.example
 
-# ───────────── Editores / IDE ─────────────
+# ═══════════════ Editores / IDE ═══════════════
 .vscode/*
 !.vscode/extensions.json
 .idea/
@@ -37,7 +50,7 @@ pnpm-debug.log*
 *.swo
 *~
 
-# ───────────── OS ─────────────
+# ═══════════════ OS ═══════════════
 .DS_Store
 Thumbs.db
 desktop.ini

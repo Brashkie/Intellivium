@@ -8,7 +8,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use ndarray::Array2;
-use neuroforge_core::{Activation, Dense, Model, Rng};
+use neuroforge_core::{Activation, Dense, Loss, Model, Optimizer, Rng, TrainConfig};
 
 /// Especificación de una capa densa, recibida desde JS como objeto.
 #[napi(object)]
@@ -16,6 +16,39 @@ pub struct LayerSpec {
     pub input_dim: u32,
     pub output_dim: u32,
     pub activation: String,
+}
+
+/// Config de entrenamiento recibida desde JS.
+#[napi(object)]
+pub struct JsTrainConfig {
+    pub epochs: u32,
+    pub lr: f64,
+    /// "sgd" | "adam" (default: "sgd")
+    pub optimizer: Option<String>,
+    /// "mse" | "bce" (default: "mse")
+    pub loss: Option<String>,
+    pub beta1: Option<f64>,
+    pub beta2: Option<f64>,
+    pub eps: Option<f64>,
+}
+
+impl JsTrainConfig {
+    fn to_core(&self) -> TrainConfig {
+        let optimizer = match self.optimizer.as_deref() {
+            Some("adam") => Optimizer::Adam {
+                beta1: self.beta1.unwrap_or(0.9) as f32,
+                beta2: self.beta2.unwrap_or(0.999) as f32,
+                eps: self.eps.unwrap_or(1e-8) as f32,
+            },
+            _ => Optimizer::Sgd,
+        };
+        TrainConfig {
+            epochs: self.epochs as usize,
+            lr: self.lr as f32,
+            loss: Loss::from_str(self.loss.as_deref().unwrap_or("mse")),
+            optimizer,
+        }
+    }
 }
 
 #[napi(js_name = "Model")]
@@ -50,7 +83,7 @@ impl JsModel {
         })
     }
 
-    /// Entrena (SGD + MSE). Devuelve el historial de loss por época.
+    /// Entrena según la config (optimizer + loss). Devuelve el historial de loss.
     #[napi]
     pub fn train(
         &mut self,
@@ -60,12 +93,11 @@ impl JsModel {
         y: Float64Array,
         y_rows: u32,
         y_cols: u32,
-        epochs: u32,
-        lr: f64,
+        config: JsTrainConfig,
     ) -> Result<Vec<f64>> {
         let xm = to_array2(&x, x_rows as usize, x_cols as usize)?;
         let ym = to_array2(&y, y_rows as usize, y_cols as usize)?;
-        let hist = self.inner.train(&xm, &ym, epochs as usize, lr as f32);
+        let hist = self.inner.train(&xm, &ym, &config.to_core());
         Ok(hist.into_iter().map(|v| v as f64).collect())
     }
 

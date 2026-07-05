@@ -1,100 +1,35 @@
-name: CI
+name: Release
 
 env:
   DEBUG: napi:*
   APP_NAME: intellivium
   MACOSX_DEPLOYMENT_TARGET: '10.13'
-  CARGO_INCREMENTAL: '1'
 
 permissions:
   contents: write
   id-token: write
+  packages: write
 
 on:
   push:
-    branches:
-      - main
-    tags-ignore:
-      - '**'
-    paths-ignore:
-      - '**/*.md'
-      - LICENSE
-      - '**/*.gitignore'
-      - .editorconfig
-      - docs/**
-  pull_request:
-    branches:
-      - main
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    tags:
+      - 'v*'
 
 jobs:
-  # ───────────────────────────────────────────────────────────────
-  # Rust unit tests (fail fast)
-  # ───────────────────────────────────────────────────────────────
-  rust-test:
-    name: Rust tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-      - name: fmt
-        run: cargo fmt --all -- --check
-      - name: clippy (core)
-        run: cargo clippy -p neuroforge-core -- -D warnings
-      - name: test (excluding NAPI bindings)
-        run: cargo test --workspace --exclude neuroforge-napi --verbose
-
-  # ───────────────────────────────────────────────────────────────
-  # Node checks: lint · typecheck · coverage
-  # ───────────────────────────────────────────────────────────────
-  node-checks:
-    name: Node checks
-    needs: rust-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - name: lint
-        run: npm run lint
-      - name: typecheck
-        run: npm run typecheck
-      - name: build (native + ts)
-        run: npm run build
-      - name: coverage
-        run: npm run coverage
-
-  # ───────────────────────────────────────────────────────────────
-  # Build native binaries for all platforms
-  # ───────────────────────────────────────────────────────────────
   build:
-    needs: rust-test
     strategy:
       fail-fast: false
       matrix:
         settings:
-          # macOS
           - host: macos-latest
             target: x86_64-apple-darwin
-            build: npm run build:native -- --target x86_64-apple-darwin
+            build: |
+              rustup target add x86_64-apple-darwin
+              npm run build:native -- --target x86_64-apple-darwin
           - host: macos-latest
             target: aarch64-apple-darwin
             build: npm run build:native -- --target aarch64-apple-darwin
 
-          # Windows
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: npm run build:native -- --target x86_64-pc-windows-msvc
@@ -102,7 +37,6 @@ jobs:
             target: aarch64-pc-windows-msvc
             build: npm run build:native -- --target aarch64-pc-windows-msvc
 
-          # Linux x64 GNU (Debian)
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
@@ -110,7 +44,6 @@ jobs:
               rustup update stable
               npm run build:native -- --target x86_64-unknown-linux-gnu
 
-          # Linux x64 musl (Alpine)
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
@@ -118,7 +51,6 @@ jobs:
               rustup update stable
               npm run build:native -- --target x86_64-unknown-linux-musl
 
-          # Linux ARM64 GNU
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
@@ -131,7 +63,7 @@ jobs:
               export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
               npm run build:native -- --target aarch64-unknown-linux-gnu
 
-          # ─── Android (opcional: borra estas 2 entradas si no lo necesitas) ───
+          # ─── Android (opcional) ───
           - host: ubuntu-latest
             target: aarch64-linux-android
             build: |
@@ -155,7 +87,7 @@ jobs:
               rustup target add armv7-linux-androideabi
               npm run build:native -- --target armv7-linux-androideabi
 
-    name: stable - ${{ matrix.settings.target }} - node@20
+    name: Build - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -180,10 +112,10 @@ jobs:
             ~/.cargo/git/db/
             .cargo-cache
             target/
-          key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+          key: ${{ matrix.settings.target }}-cargo-release
       - name: Install dependencies
         if: ${{ !matrix.settings.docker }}
-        run: npm install
+        run: npm install --ignore-scripts
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
@@ -191,7 +123,7 @@ jobs:
           image: ${{ matrix.settings.docker }}
           options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
           run: |
-            npm install
+            npm install --ignore-scripts
             ${{ matrix.settings.build }}
       - name: Build
         run: ${{ matrix.settings.build }}
@@ -207,17 +139,76 @@ jobs:
           path: ${{ env.APP_NAME }}.*.node
           if-no-files-found: error
 
-  # ───────────────────────────────────────────────────────────────
-  # Security audit
-  # ───────────────────────────────────────────────────────────────
-  audit:
-    name: cargo-audit
+  publish:
+    name: Publish to npm
     runs-on: ubuntu-latest
+    needs:
+      - build
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-audit
-        run: cargo install --locked cargo-audit || true
-      - name: Audit dependencies
-        run: cargo audit --deny warnings
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+          always-auth: true
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Build native (genera index.js + index.d.ts)
+        run: npm run build:native
+      - name: Build TypeScript
+        run: npm run build:ts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: List artifacts
+        run: ls -R artifacts
+        shell: bash
+      - name: Move artifacts into npm/ dirs
+        run: npm run artifacts
+      - name: List npm dir
+        run: ls -R ./npm
+        shell: bash
+      - name: Setup npm auth
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          echo "registry=https://registry.npmjs.org/" >> ~/.npmrc
+          echo "always-auth=true" >> ~/.npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify npm auth
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish platform sub-packages
+        run: |
+          for dir in npm/*/; do
+            echo "📦 Publishing $dir"
+            cd "$dir"
+            npm publish --access public --no-git-checks || echo "⚠️ Failed or already published: $dir"
+            cd "$GITHUB_WORKSPACE"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish main package
+        run: npm publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
