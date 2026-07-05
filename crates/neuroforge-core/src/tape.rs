@@ -8,13 +8,13 @@ use ndarray::{Array2, Axis};
 #[derive(Clone)]
 enum Op {
     Leaf,
-    Add(usize, usize),     // soporta broadcast de bias (1, n) sobre (batch, n)
+    Add(usize, usize), // soporta broadcast de bias (1, n) sobre (batch, n)
     MatMul(usize, usize),
     Relu(usize),
     Sigmoid(usize),
     Tanh(usize),
-    Mse(usize, usize),     // pred, target -> escalar (1,1)
-    Bce(usize, usize),     // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
+    Mse(usize, usize), // pred, target -> escalar (1,1)
+    Bce(usize, usize), // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
 }
 
 const EPS: f32 = 1e-7;
@@ -33,7 +33,10 @@ impl Default for Tape {
 
 impl Tape {
     pub fn new() -> Self {
-        Tape { values: Vec::new(), ops: Vec::new() }
+        Tape {
+            values: Vec::new(),
+            ops: Vec::new(),
+        }
     }
 
     fn push(&mut self, value: Array2<f32>, op: Op) -> usize {
@@ -111,8 +114,11 @@ impl Tape {
     /// Backprop desde `out` (típicamente la loss escalar). Devuelve el gradiente
     /// de CADA nodo de la cinta, indexado por su id.
     pub fn backward(&self, out: usize) -> Vec<Array2<f32>> {
-        let mut grads: Vec<Array2<f32>> =
-            self.values.iter().map(|v| Array2::zeros(v.raw_dim())).collect();
+        let mut grads: Vec<Array2<f32>> = self
+            .values
+            .iter()
+            .map(|v| Array2::zeros(v.raw_dim()))
+            .collect();
         grads[out].fill(1.0);
 
         for i in (0..self.ops.len()).rev() {

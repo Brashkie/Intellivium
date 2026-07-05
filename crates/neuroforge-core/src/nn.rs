@@ -14,6 +14,7 @@ pub enum Activation {
 }
 
 impl Activation {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Activation {
         match s.to_lowercase().as_str() {
             "relu" => Activation::Relu,
@@ -32,6 +33,7 @@ pub enum Loss {
 }
 
 impl Loss {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Loss {
         match s.to_lowercase().as_str() {
             "bce" | "binary_crossentropy" | "crossentropy" => Loss::Bce,
@@ -50,9 +52,14 @@ pub enum Optimizer {
 
 impl Optimizer {
     pub fn adam_default() -> Optimizer {
-        Optimizer::Adam { beta1: 0.9, beta2: 0.999, eps: 1e-8 }
+        Optimizer::Adam {
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+        }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Optimizer {
         match s.to_lowercase().as_str() {
             "adam" => Optimizer::adam_default(),
@@ -72,11 +79,21 @@ pub struct TrainConfig {
 
 impl TrainConfig {
     pub fn sgd(epochs: usize, lr: f32) -> Self {
-        TrainConfig { epochs, lr, loss: Loss::Mse, optimizer: Optimizer::Sgd }
+        TrainConfig {
+            epochs,
+            lr,
+            loss: Loss::Mse,
+            optimizer: Optimizer::Sgd,
+        }
     }
 
     pub fn adam(epochs: usize, lr: f32) -> Self {
-        TrainConfig { epochs, lr, loss: Loss::Mse, optimizer: Optimizer::adam_default() }
+        TrainConfig {
+            epochs,
+            lr,
+            loss: Loss::Mse,
+            optimizer: Optimizer::adam_default(),
+        }
     }
 }
 
@@ -130,15 +147,42 @@ impl Dense {
         }
     }
 
-    fn apply_grads(&mut self, gw: &Array2<f32>, gb: &Array2<f32>, opt: &Optimizer, lr: f32, t: i32) {
+    fn apply_grads(
+        &mut self,
+        gw: &Array2<f32>,
+        gb: &Array2<f32>,
+        opt: &Optimizer,
+        lr: f32,
+        t: i32,
+    ) {
         match *opt {
             Optimizer::Sgd => {
                 self.w = &self.w - &(gw * lr);
                 self.b = &self.b - &(gb * lr);
             }
             Optimizer::Adam { beta1, beta2, eps } => {
-                adam_step(&mut self.w, &mut self.mw, &mut self.vw, gw, lr, beta1, beta2, eps, t);
-                adam_step(&mut self.b, &mut self.mb, &mut self.vb, gb, lr, beta1, beta2, eps, t);
+                adam_step(
+                    &mut self.w,
+                    &mut self.mw,
+                    &mut self.vw,
+                    gw,
+                    lr,
+                    beta1,
+                    beta2,
+                    eps,
+                    t,
+                );
+                adam_step(
+                    &mut self.b,
+                    &mut self.mb,
+                    &mut self.vb,
+                    gb,
+                    lr,
+                    beta1,
+                    beta2,
+                    eps,
+                    t,
+                );
             }
         }
     }
@@ -258,7 +302,11 @@ mod tests {
             optimizer: Optimizer::adam_default(),
         };
         let hist = model.train(&x, &y, &cfg);
-        assert!(*hist.last().unwrap() < 0.1, "BCE final demasiado alta: {}", hist.last().unwrap());
+        assert!(
+            *hist.last().unwrap() < 0.1,
+            "BCE final demasiado alta: {}",
+            hist.last().unwrap()
+        );
         assert_xor(&model, &x);
     }
 
@@ -268,7 +316,10 @@ mod tests {
         assert!(matches!(Activation::from_str("otro"), Activation::Linear));
         assert!(matches!(Loss::from_str("bce"), Loss::Bce));
         assert!(matches!(Loss::from_str("mse"), Loss::Mse));
-        assert!(matches!(Optimizer::from_str("adam"), Optimizer::Adam { .. }));
+        assert!(matches!(
+            Optimizer::from_str("adam"),
+            Optimizer::Adam { .. }
+        ));
         assert!(matches!(Optimizer::from_str("sgd"), Optimizer::Sgd));
     }
 }
