@@ -88,7 +88,7 @@
     "@napi-rs/cli": "^2.18.4",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.8",
-    "typescript": "^5.6.0",
+    "typescript": "^6.0.3",
     "tsup": "^8.5.0",
     "vitest": "^2.1.8"
   },
