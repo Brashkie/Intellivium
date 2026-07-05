@@ -187,18 +187,7 @@ jobs:
         run: npm whoami
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Publish platform sub-packages
-        run: |
-          for dir in npm/*/; do
-            echo "📦 Publishing $dir"
-            cd "$dir"
-            npm publish --access public --no-git-checks || echo "⚠️ Failed or already published: $dir"
-            cd "$GITHUB_WORKSPACE"
-          done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Publish main package
+      - name: Publish main package (prepublishOnly publica los sub-paquetes)
         run: npm publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
