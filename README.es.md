@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Intellivium
+<img src="https://raw.githubusercontent.com/Brashkie/Intellivium/main/media/intellivium.png" alt="Intellivium" width="420" />
 
 **Framework de Deep Learning de alto rendimiento con núcleo en Rust, nativo del ecosistema Node.js.**
 
