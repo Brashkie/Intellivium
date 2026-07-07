@@ -17,6 +17,15 @@ export interface NativeTrainConfig {
   beta1?: number;
   beta2?: number;
   eps?: number;
+  batchSize?: number;
+}
+
+export interface NativeLayerState {
+  inputDim: number;
+  outputDim: number;
+  activation: string;
+  weights: Float64Array;
+  bias: Float64Array;
 }
 
 export interface NativeModelInstance {
@@ -30,6 +39,8 @@ export interface NativeModelInstance {
     config: NativeTrainConfig,
   ): number[];
   predict(x: Float64Array, xRows: number, xCols: number): Float64Array;
+  save(): NativeLayerState[];
+  setWeights(index: number, weights: Float64Array, bias: Float64Array): void;
   readonly outputDim: number;
 }
 

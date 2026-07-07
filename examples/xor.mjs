@@ -1,5 +1,5 @@
-// Ejemplo XOR usando el paquete ya compilado (npm run build antes).
-// Ahora con Adam + BCE.
+// Ejemplo XOR con Adam + BCE, mini-batches y save/load.
+// (requiere `npm run build` antes)
 import { Model, dense, tensor } from "../lib/index.js";
 
 const X = tensor([
@@ -13,18 +13,30 @@ const y = tensor([[0], [1], [1], [0]]);
 const model = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
 
 const history = await model.train(X, y, {
-  epochs: 1500,
+  epochs: 2000,
   lr: 0.05,
   optimizer: "adam",
   loss: "bce",
+  batchSize: 2, // mini-batches
 });
 
-console.log("optimizador: adam | loss: bce");
-console.log("loss inicial:", history[0].toFixed(5));
-console.log("loss final  :", history.at(-1).toFixed(5));
+console.log("loss final:", history.at(-1).toFixed(5));
+console.log(
+  "predicciones:",
+  model
+    .predict(X)
+    .toArray()
+    .map(([p]) => p.toFixed(3)),
+);
 
-const pred = model.predict(X);
-console.log("\npredicciones (esperado 0,1,1,0):");
-pred.toArray().forEach(([p], i) => {
-  console.log(`  ${X.toArray()[i].join(",")} -> ${p.toFixed(4)} (${p > 0.5 ? 1 : 0})`);
-});
+// save / load
+const state = model.save();
+const json = JSON.stringify(state);
+const restored = Model.load(JSON.parse(json));
+console.log(
+  "tras load:  ",
+  restored
+    .predict(X)
+    .toArray()
+    .map(([p]) => p.toFixed(3)),
+);

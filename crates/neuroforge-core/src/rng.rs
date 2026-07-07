@@ -31,4 +31,12 @@ impl Rng {
         let u2 = self.uniform();
         (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
     }
+
+    /// Entero uniforme en [0, n). Para barajado (Fisher-Yates).
+    pub fn usize_below(&mut self, n: usize) -> usize {
+        if n == 0 {
+            return 0;
+        }
+        (self.next_u64() % n as u64) as usize
+    }
 }

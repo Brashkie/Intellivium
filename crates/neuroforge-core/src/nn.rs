@@ -1,6 +1,6 @@
 //! Capas, modelo secuencial, entrenamiento y predicción.
 
-use ndarray::Array2;
+use ndarray::{Array2, Axis};
 
 use crate::rng::Rng;
 use crate::tape::Tape;
@@ -21,6 +21,15 @@ impl Activation {
             "sigmoid" => Activation::Sigmoid,
             "tanh" => Activation::Tanh,
             _ => Activation::Linear,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Activation::Linear => "linear",
+            Activation::Relu => "relu",
+            Activation::Sigmoid => "sigmoid",
+            Activation::Tanh => "tanh",
         }
     }
 }
@@ -75,6 +84,8 @@ pub struct TrainConfig {
     pub lr: f32,
     pub loss: Loss,
     pub optimizer: Optimizer,
+    /// Tamaño de mini-batch. 0 = batch completo (todo el dataset por época).
+    pub batch_size: usize,
 }
 
 impl TrainConfig {
@@ -84,6 +95,7 @@ impl TrainConfig {
             lr,
             loss: Loss::Mse,
             optimizer: Optimizer::Sgd,
+            batch_size: 0,
         }
     }
 
@@ -93,6 +105,7 @@ impl TrainConfig {
             lr,
             loss: Loss::Mse,
             optimizer: Optimizer::adam_default(),
+            batch_size: 0,
         }
     }
 }
@@ -190,12 +203,28 @@ impl Dense {
 
 pub struct Model {
     pub layers: Vec<Dense>,
-    t: i32, // timestep de Adam
+    t: i32,   // timestep de Adam
+    rng: Rng, // para barajar los mini-batches
 }
 
 impl Model {
     pub fn new(layers: Vec<Dense>) -> Self {
-        Model { layers, t: 0 }
+        Model {
+            layers,
+            t: 0,
+            rng: Rng::new(0x1234_5678),
+        }
+    }
+
+    /// Reemplaza los pesos de una capa (para load). Resetea el estado de Adam.
+    pub fn set_weights(&mut self, i: usize, w: Array2<f32>, b: Array2<f32>) {
+        let l = &mut self.layers[i];
+        l.mw = Array2::zeros(w.raw_dim());
+        l.vw = Array2::zeros(w.raw_dim());
+        l.mb = Array2::zeros(b.raw_dim());
+        l.vb = Array2::zeros(b.raw_dim());
+        l.w = w;
+        l.b = b;
     }
 
     /// Construye el grafo forward sobre la cinta y devuelve:
@@ -226,28 +255,63 @@ impl Model {
         tape.value(out).clone()
     }
 
-    /// Entrena según `cfg`. Devuelve el historial de loss por época.
-    pub fn train(&mut self, x: &Array2<f32>, y: &Array2<f32>, cfg: &TrainConfig) -> Vec<f32> {
-        let mut history = Vec::with_capacity(cfg.epochs);
-        for _ in 0..cfg.epochs {
-            let mut tape = Tape::new();
-            let xid = tape.leaf(x.clone());
-            let yid = tape.leaf(y.clone());
-            let (out, params) = self.forward_tape(&mut tape, xid);
-            let loss = match cfg.loss {
-                Loss::Mse => tape.mse(out, yid),
-                Loss::Bce => tape.bce(out, yid),
-            };
-            let loss_val = tape.value(loss)[[0, 0]];
+    /// Un paso de entrenamiento sobre un batch: forward, backward y update.
+    /// Devuelve la loss del batch.
+    fn step(&mut self, xb: &Array2<f32>, yb: &Array2<f32>, cfg: &TrainConfig) -> f32 {
+        let mut tape = Tape::new();
+        let xid = tape.leaf(xb.clone());
+        let yid = tape.leaf(yb.clone());
+        let (out, params) = self.forward_tape(&mut tape, xid);
+        let loss = match cfg.loss {
+            Loss::Mse => tape.mse(out, yid),
+            Loss::Bce => tape.bce(out, yid),
+        };
+        let loss_val = tape.value(loss)[[0, 0]];
 
-            let grads = tape.backward(loss);
-            self.t += 1;
-            for (li, (wid, bid)) in params.iter().enumerate() {
-                let gw = grads[*wid].clone();
-                let gb = grads[*bid].clone();
-                self.layers[li].apply_grads(&gw, &gb, &cfg.optimizer, cfg.lr, self.t);
+        let grads = tape.backward(loss);
+        self.t += 1;
+        for (li, (wid, bid)) in params.iter().enumerate() {
+            let gw = grads[*wid].clone();
+            let gb = grads[*bid].clone();
+            self.layers[li].apply_grads(&gw, &gb, &cfg.optimizer, cfg.lr, self.t);
+        }
+        loss_val
+    }
+
+    /// Entrena según `cfg`. Con `batch_size > 0` usa mini-batches barajados por
+    /// época; con 0 usa el batch completo. Devuelve la loss media por época.
+    pub fn train(&mut self, x: &Array2<f32>, y: &Array2<f32>, cfg: &TrainConfig) -> Vec<f32> {
+        let n = x.nrows();
+        let bs = if cfg.batch_size == 0 || cfg.batch_size >= n {
+            n
+        } else {
+            cfg.batch_size
+        };
+
+        let mut history = Vec::with_capacity(cfg.epochs);
+        let mut idx: Vec<usize> = (0..n).collect();
+
+        for _ in 0..cfg.epochs {
+            if bs < n {
+                // Fisher-Yates shuffle.
+                for i in (1..n).rev() {
+                    let j = self.rng.usize_below(i + 1);
+                    idx.swap(i, j);
+                }
             }
-            history.push(loss_val);
+
+            let mut epoch_loss = 0.0f32;
+            let mut start = 0;
+            while start < n {
+                let end = (start + bs).min(n);
+                let batch = &idx[start..end];
+                let xb = x.select(Axis(0), batch);
+                let yb = y.select(Axis(0), batch);
+                let lv = self.step(&xb, &yb, cfg);
+                epoch_loss += lv * (end - start) as f32;
+                start = end;
+            }
+            history.push(epoch_loss / n as f32);
         }
         history
     }
@@ -300,6 +364,7 @@ mod tests {
             lr: 0.05,
             loss: Loss::Bce,
             optimizer: Optimizer::adam_default(),
+            batch_size: 0,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -321,5 +386,50 @@ mod tests {
             Optimizer::Adam { .. }
         ));
         assert!(matches!(Optimizer::from_str("sgd"), Optimizer::Sgd));
+    }
+
+    #[test]
+    fn learns_xor_minibatch() {
+        let mut rng = Rng::new(7);
+        let (x, y) = xor_data();
+        let mut model = xor_model(&mut rng);
+        let cfg = TrainConfig {
+            epochs: 3000,
+            lr: 0.05,
+            loss: Loss::Bce,
+            optimizer: Optimizer::adam_default(),
+            batch_size: 2, // mini-batches de 2 sobre 4 muestras
+        };
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            *hist.last().unwrap() < 0.15,
+            "minibatch loss final: {}",
+            hist.last().unwrap()
+        );
+        assert_xor(&model, &x);
+    }
+
+    #[test]
+    fn set_weights_roundtrip() {
+        let mut rng = Rng::new(1);
+        let (x, y) = xor_data();
+        let mut trained = xor_model(&mut rng);
+        trained.train(&x, &y, &TrainConfig::adam(1500, 0.05));
+        let before = trained.predict(&x);
+
+        // Clonar pesos a un modelo nuevo (misma arquitectura, init distinto).
+        let mut rng2 = Rng::new(999);
+        let mut restored = xor_model(&mut rng2);
+        for i in 0..trained.layers.len() {
+            restored.set_weights(i, trained.layers[i].w.clone(), trained.layers[i].b.clone());
+        }
+        let after = restored.predict(&x);
+
+        for r in 0..before.nrows() {
+            assert!(
+                (before[[r, 0]] - after[[r, 0]]).abs() < 1e-6,
+                "mismatch fila {r}"
+            );
+        }
     }
 }

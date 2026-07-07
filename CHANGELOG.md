@@ -5,8 +5,25 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/),
 versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-07-05
+### Added
+- **Entrenamiento por mini-batches**: opción `batchSize` (barajado Fisher-Yates
+  por época); `0`/ausente = batch completo.
+- **`save` / `load` de modelos**: `model.save()` devuelve un estado JSON-friendly
+  (arquitectura + pesos) y `Model.load(state)` lo reconstruye. En Rust:
+  `Model::set_weights` y `Activation::as_str`.
+- Tests nuevos (Rust y TS) para mini-batches y round-trip de save/load.
+
+## [0.2.1] - 2026-07-05
+### Fixed
+- Release: se eliminó la doble publicación de sub-paquetes en `release.yml`
+  (el loop manual + `napi prepublish` chocaban → error 403 "already published").
+  Ahora `napi prepublish` (vía `prepublishOnly`) publica los sub-paquetes y fija
+  las `optionalDependencies`, y `npm publish` sube el paquete principal.
 ### Changed
-- **Rebrand a Intellivium**: el paquete npm es `intellivium` (org scope).
+- **Renombrado de NeuroForge a Intellivium.** El paquete npm es `intellivium`
+  (sin scope). El repo también pasó de `NeuroForge` a `Intellivium`.
 - **Relicenciado a Apache-2.0** (antes propietario).
 - Publicación multiplataforma vía GitHub Actions (`release.yml`): binarios
   prebuilt por plataforma como sub-paquetes `intellivium-<triple>`.

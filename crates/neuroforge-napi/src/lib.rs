@@ -30,6 +30,8 @@ pub struct JsTrainConfig {
     pub beta1: Option<f64>,
     pub beta2: Option<f64>,
     pub eps: Option<f64>,
+    /// Tamaño de mini-batch. 0/ausente = batch completo.
+    pub batch_size: Option<u32>,
 }
 
 impl JsTrainConfig {
@@ -47,8 +49,21 @@ impl JsTrainConfig {
             lr: self.lr as f32,
             loss: Loss::from_str(self.loss.as_deref().unwrap_or("mse")),
             optimizer,
+            batch_size: self.batch_size.unwrap_or(0) as usize,
         }
     }
+}
+
+/// Estado serializable de una capa (para save/load desde JS).
+#[napi(object)]
+pub struct LayerState {
+    pub input_dim: u32,
+    pub output_dim: u32,
+    pub activation: String,
+    /// Pesos W aplanados row-major (input_dim * output_dim).
+    pub weights: Float64Array,
+    /// Bias (output_dim).
+    pub bias: Float64Array,
 }
 
 #[napi(js_name = "Model")]
@@ -85,6 +100,7 @@ impl JsModel {
 
     /// Entrena según la config (optimizer + loss). Devuelve el historial de loss.
     #[napi]
+    #[allow(clippy::too_many_arguments)]
     pub fn train(
         &mut self,
         x: Float64Array,
@@ -113,6 +129,44 @@ impl JsModel {
     #[napi(getter)]
     pub fn output_dim(&self) -> u32 {
         self.out_dim
+    }
+
+    /// Serializa los pesos de todas las capas (para guardar el modelo).
+    #[napi]
+    pub fn save(&self) -> Vec<LayerState> {
+        self.inner
+            .layers
+            .iter()
+            .map(|l| LayerState {
+                input_dim: l.w.nrows() as u32,
+                output_dim: l.w.ncols() as u32,
+                activation: l.act.as_str().to_string(),
+                weights: Float64Array::new(l.w.iter().map(|&v| v as f64).collect()),
+                bias: Float64Array::new(l.b.iter().map(|&v| v as f64).collect()),
+            })
+            .collect()
+    }
+
+    /// Reemplaza los pesos de una capa (para cargar un modelo guardado).
+    #[napi]
+    pub fn set_weights(
+        &mut self,
+        index: u32,
+        weights: Float64Array,
+        bias: Float64Array,
+    ) -> Result<()> {
+        let i = index as usize;
+        if i >= self.inner.layers.len() {
+            return Err(Error::from_reason(format!("capa {i} fuera de rango")));
+        }
+        let (rows, cols) = {
+            let w = &self.inner.layers[i].w;
+            (w.nrows(), w.ncols())
+        };
+        let w = to_array2(&weights, rows, cols)?;
+        let b = to_array2(&bias, 1, cols)?;
+        self.inner.set_weights(i, w, b);
+        Ok(())
     }
 }
 

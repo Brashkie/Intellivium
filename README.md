@@ -22,7 +22,7 @@
 
 ## Overview
 
-**Intellivium** is a deep learning framework whose numerical core is written entirely in **Rust** and exposed to JavaScript/TypeScript through **N-API**. The goal is the power of a native ML engine with the ergonomics of the npm ecosystem: `npm install`, import, and train — with precompiled binaries per platform and **no C/C++ source, no Python, and no embedded VM**.
+**Intellivium** *(formerly NeuroForge)* is a deep learning framework whose numerical core is written entirely in **Rust** and exposed to JavaScript/TypeScript through **N-API**. The goal is the power of a native ML engine with the ergonomics of the npm ecosystem: `npm install`, import, and train — with precompiled binaries per platform and **no C/C++ source, no Python, and no embedded VM**.
 
 It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberate engineering choice: **one native language (Rust)** for the engine, **TypeScript** for the public API, and **Zig** reserved strictly for future hot kernels.
 
@@ -45,12 +45,12 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ## 🚦 Project Status
 
-> **v0.2.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
+> **v0.3.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
 
 **Available today** ✅
 - Reverse-mode automatic differentiation (Wengert tape, no `Rc<RefCell>`).
 - Ops: `matmul`, broadcasted bias `add`, `relu`, `sigmoid`, `tanh`, `MSE`.
-- `Dense` layers with He initialization, sequential `Model`, **SGD & Adam** optimizers, **MSE & BCE** losses.
+- `Dense` layers with He init, sequential `Model`, **SGD & Adam** optimizers, **MSE & BCE** losses, **mini-batch training**, and model **`save`/`load`**.
 - N-API bindings + typed TypeScript API.
 - Validated end-to-end on the XOR problem (non-linear): **loss 0.247 → 0.0002**.
 
@@ -121,9 +121,8 @@ Intellivium/
 │   │   ├── src/nn.rs       #   Dense, Model, train/predict
 │   │   └── examples/xor.rs #   `cargo run` proof
 │   └── neuroforge-napi/    # N-API bindings → .node
-├── ts/                     # public TypeScript API
-├── examples/               # xor.mjs (Node)
-└── NEUROFORGE_BUILD.md      # stack decision + build guide
+├── src/                    # public TypeScript API
+└── examples/               # xor.mjs (Node)
 ```
 
 ---
@@ -148,28 +147,248 @@ npm test
 
 ## 🗺️ Roadmap & Vision
 
-The engine is the foundation. The framework grows from here.
+The engine is the foundation. Everything below is the long-term plan, phase by phase — honest about what already ships versus what's still ahead.
 
-**Next**
-- [x] Adam optimizer
-- [x] BCE / Cross-Entropy losses
-- [ ] Mini-batch training & data loaders
-- [ ] Model `save` / `load` (weights serialization)
+**Legend:** ✅ Complete · 🟡 Partial · 🔴 Planned
 
-**Then**
-- [ ] Conv / Pooling layers
-- [ ] RNN · LSTM · GRU
-- [ ] Zig SIMD kernels for matmul / conv hot paths
+### Phase 1 — Deep Learning Core · 🟡
+*A stable, reliable engine.*
 
-**Vision** *(not yet implemented)*
-- [ ] Transformers & modern attention
-- [ ] Autoencoders · GAN · VAE
-- [ ] Reinforcement learning (Q-learning, PPO, SAC)
-- [ ] **ForgeLab** — scientific computing submodule (linear algebra, numerical methods)
-- [ ] **HDE** — Hyper-Data Engine (lazy loading, columnar, hot-caching)
-- [ ] GPU acceleration
+**Tensors**
+- [ ] Data types (dtype system — currently f32 only)
+- [x] Broadcasting
+- [x] Basic operations
+- [x] MatMul
+- [x] Shape checking
+- [ ] Tensor views
 
----
+**Autograd**
+- [x] Reverse mode
+- [x] Wengert tape
+- [x] Gradients
+- [x] Computation graph
+- [x] Automatic graph release
+
+**Neural networks**
+- [x] Dense
+- [x] Sequential
+- [x] He initialization
+- [x] ReLU
+- [x] Sigmoid
+- [x] Tanh
+
+**Loss functions**
+- [x] MSE
+- [x] BCE
+- [ ] Cross-Entropy (categorical)
+
+**Optimizers**
+- [x] SGD
+- [x] Adam
+
+**API**
+- [x] TypeScript
+- [x] N-API
+- [x] npm
+
+### Phase 2 — Training · 🟡
+*Make training a model comfortable.*
+
+**Dataset**
+- [ ] Dataset
+- [ ] TensorDataset
+- [ ] Custom Dataset
+
+**DataLoader**
+- [x] Mini-batch
+- [x] Shuffle
+- [ ] Batch iterator
+
+**Training loop**
+- [ ] Validation
+- [ ] Early stopping
+- [ ] Checkpoints
+- [ ] Gradient clipping
+- [ ] Learning-rate scheduler
+
+**Serialization**
+- [x] save()
+- [x] load()
+- [ ] exportWeights()
+- [ ] importWeights()
+
+### Phase 3 — Neural Library · 🔴
+*More building blocks.*
+
+**Layers**
+- [ ] Dropout
+- [ ] BatchNorm
+- [ ] LayerNorm
+- [ ] Embedding
+- [ ] Flatten
+- [ ] Reshape
+
+**CNN**
+- [ ] Conv1D
+- [ ] Conv2D
+- [ ] Conv3D
+
+**Pooling**
+- [ ] MaxPool
+- [ ] AvgPool
+- [ ] Global pool
+
+**Recurrent**
+- [ ] RNN
+- [ ] LSTM
+- [ ] GRU
+
+### Phase 4 — Engine Optimization · 🔴
+*Before adding modern AI.*
+
+**SIMD**
+- [ ] Zig SIMD
+- [ ] Optimized MatMul
+- [ ] Optimized Conv
+
+**Memory**
+- [ ] Arena allocator
+- [ ] Buffer pool
+- [ ] Zero copy
+- [ ] Tensor pool
+
+**Parallelism**
+- [ ] Rayon
+- [ ] Multi-thread
+
+**Benchmark**
+- [ ] Benchmarks
+- [ ] Profiler
+
+### Phase 5 — Modern Architectures · 🔴
+*Where Transformers finally appear.*
+
+**Attention**
+- [ ] Self-attention
+- [ ] Multi-head attention
+- [ ] Positional encoding
+- [ ] Rotary embeddings
+
+**Transformers**
+- [ ] Encoder
+- [ ] Decoder
+- [ ] GPT
+- [ ] BERT
+
+**Vision**
+- [ ] Vision Transformer
+- [ ] ConvNeXt
+
+### Phase 6 — Generative Models · 🔴
+- [ ] Autoencoder
+- [ ] VAE
+- [ ] GAN
+- [ ] Diffusion
+
+### Phase 7 — Reinforcement Learning · 🔴
+- [ ] Replay buffer
+- [ ] DQN
+- [ ] PPO
+- [ ] SAC
+- [ ] Actor-Critic
+
+### Phase 8 — ForgeLab · 🔴
+*Scientific computing.*
+
+**Linear algebra**
+- [ ] LU
+- [ ] QR
+- [ ] SVD
+- [ ] Eigen
+
+**Numerical**
+- [ ] Optimization
+- [ ] ODE
+- [ ] Root finding
+
+**Statistics**
+- [ ] Monte Carlo
+- [ ] Distributions
+
+### Phase 9 — Hyper-Data Engine (HDE) · 🔴
+
+**Data**
+- [ ] Lazy loading
+- [ ] Streaming
+- [ ] Hot cache
+- [ ] Dataset cache
+
+**Formats**
+- [ ] Parquet
+- [ ] Arrow
+- [ ] CSV
+- [ ] JSON
+
+**Engine**
+- [ ] Memory mapping
+- [ ] Prefetch
+- [ ] Columnar storage
+
+### Phase 10 — GPU · 🔴
+
+**GPU**
+- [ ] CUDA
+- [ ] ROCm
+- [ ] Metal
+- [ ] Vulkan
+
+**Mixed precision**
+- [ ] FP16
+- [ ] BF16
+
+**Quantization**
+- [ ] INT8
+- [ ] INT4
+
+### Phase 11 — Production · 🔴
+- [ ] Inference engine
+- [ ] Batch inference
+- [ ] ONNX
+- [ ] Serving
+- [ ] HTTP
+- [ ] gRPC
+
+### Phase 12 — Ecosystem · 🔴
+*Tooling, not AI.*
+
+**Visualization**
+- [ ] Dashboard
+- [ ] Tensor inspector
+- [ ] Training graphs
+
+**Extensions**
+- [ ] Plugins
+- [ ] Custom layers
+- [ ] Custom optimizers
+
+**Model Hub**
+- [ ] Models
+- [ ] Datasets
+
+### Phase 13 — Research · 🔴
+*The most ambitious vision.*
+
+**Distributed**
+- [ ] Multi-GPU
+- [ ] Multi-node
+
+**Compiler**
+- [ ] Graph optimizer
+- [ ] Kernel fusion
+
+**AutoML**
+- [ ] NAS
+- [ ] Hyperparameter search
 
 ## 🤝 Contributing
 

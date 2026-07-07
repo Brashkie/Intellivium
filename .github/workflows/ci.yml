@@ -47,8 +47,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: fmt
         run: cargo fmt --all -- --check
-      - name: clippy (core)
-        run: cargo clippy -p neuroforge-core -- -D warnings
+      - name: clippy (workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test (excluding NAPI bindings)
         run: cargo test --workspace --exclude neuroforge-napi --verbose
 

@@ -30,6 +30,5 @@ tsconfig.json
 .npmignore
 
 # ─── Docs internas (README.md y LICENSE sí se incluyen) ───
-NEUROFORGE_BUILD.md
 CONTRIBUTING.md
 CHANGELOG.md

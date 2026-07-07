@@ -20,6 +20,7 @@ fn main() {
         lr: 0.05,
         loss: Loss::Bce,
         optimizer: Optimizer::adam_default(),
+        batch_size: 0,
     };
     let history = model.train(&x, &y, &cfg);
 

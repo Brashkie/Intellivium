@@ -44,4 +44,45 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
     expect(pred[2][0]).toBeGreaterThan(0.5);
     expect(pred[3][0]).toBeLessThan(0.5);
   });
+
+  it("entrena por mini-batches", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const model = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const history = await model.train(X, y, {
+      epochs: 3000,
+      lr: 0.05,
+      optimizer: "adam",
+      loss: "bce",
+      batchSize: 2,
+    });
+    expect(history.at(-1) ?? Number.POSITIVE_INFINITY).toBeLessThan(0.2);
+  });
+
+  it("save/load reproduce las predicciones", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const model = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    await model.train(X, y, { epochs: 800, lr: 0.05, optimizer: "adam", loss: "bce" });
+
+    const state = model.save();
+    const json = JSON.stringify(state);
+    const restored = Model.load(JSON.parse(json));
+
+    const a = model.predict(X).toArray();
+    const b = restored.predict(X).toArray();
+    for (let i = 0; i < a.length; i++) {
+      expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
+    }
+  });
 });

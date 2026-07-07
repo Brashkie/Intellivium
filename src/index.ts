@@ -10,6 +10,8 @@ export {
   type TrainOptions,
   type OptimizerName,
   type LossName,
+  type ModelState,
+  type LayerState,
 } from "./model.js";
 
 import { dense } from "./layers.js";
