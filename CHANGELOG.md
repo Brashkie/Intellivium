@@ -6,6 +6,14 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-08
+### Added
+- **Softmax** (activación por filas, estable) y **Categorical Cross-Entropy (CCE)**:
+  habilita clasificación **multiclase** (`loss: "cce"`, capa final `"softmax"`).
+- **Gradient clipping** por norma L2 global (`gradClip`).
+- **Learning-rate scheduler**: decaimiento exponencial por época (`lrDecay`).
+- Tests (Rust y TS) de clasificación de 3 clases con softmax + CCE.
+
 ## [0.3.0] - 2026-07-05
 ### Added
 - **Entrenamiento por mini-batches**: opción `batchSize` (barajado Fisher-Yates

@@ -45,12 +45,12 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ## 🚦 Project Status
 
-> **v0.3.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
+> **v0.4.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
 
 **Available today** ✅
 - Reverse-mode automatic differentiation (Wengert tape, no `Rc<RefCell>`).
 - Ops: `matmul`, broadcasted bias `add`, `relu`, `sigmoid`, `tanh`, `MSE`.
-- `Dense` layers with He init, sequential `Model`, **SGD & Adam** optimizers, **MSE & BCE** losses, **mini-batch training**, and model **`save`/`load`**.
+- `Dense` layers with He init, sequential `Model`, **SGD & Adam** optimizers, **MSE / BCE / categorical cross-entropy** losses, **softmax** for **multi-class** output, **mini-batch** training, **gradient clipping**, **LR decay**, and model **`save`/`load`**.
 - N-API bindings + typed TypeScript API.
 - Validated end-to-end on the XOR problem (non-linear): **loss 0.247 → 0.0002**.
 
@@ -176,11 +176,12 @@ The engine is the foundation. Everything below is the long-term plan, phase by p
 - [x] ReLU
 - [x] Sigmoid
 - [x] Tanh
+- [x] Softmax
 
 **Loss functions**
 - [x] MSE
 - [x] BCE
-- [ ] Cross-Entropy (categorical)
+- [x] Cross-Entropy (categorical)
 
 **Optimizers**
 - [x] SGD
@@ -208,8 +209,8 @@ The engine is the foundation. Everything below is the long-term plan, phase by p
 - [ ] Validation
 - [ ] Early stopping
 - [ ] Checkpoints
-- [ ] Gradient clipping
-- [ ] Learning-rate scheduler
+- [x] Gradient clipping
+- [x] Learning-rate scheduler
 
 **Serialization**
 - [x] save()

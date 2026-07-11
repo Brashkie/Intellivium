@@ -13,8 +13,10 @@ enum Op {
     Relu(usize),
     Sigmoid(usize),
     Tanh(usize),
+    Softmax(usize),    // softmax por filas (row-wise)
     Mse(usize, usize), // pred, target -> escalar (1,1)
     Bce(usize, usize), // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
+    Cce(usize, usize), // categorical cross-entropy (pred=softmax, target=one-hot)
 }
 
 const EPS: f32 = 1e-7;
@@ -87,6 +89,28 @@ impl Tape {
         self.push(v, Op::Tanh(a))
     }
 
+    /// Softmax por filas (numéricamente estable: resta el máximo de cada fila).
+    pub fn softmax(&mut self, a: usize) -> usize {
+        let z = &self.values[a];
+        let mut out = Array2::zeros(z.raw_dim());
+        for r in 0..z.nrows() {
+            let mut m = f32::NEG_INFINITY;
+            for c in 0..z.ncols() {
+                m = m.max(z[[r, c]]);
+            }
+            let mut sum = 0.0;
+            for c in 0..z.ncols() {
+                let e = (z[[r, c]] - m).exp();
+                out[[r, c]] = e;
+                sum += e;
+            }
+            for c in 0..z.ncols() {
+                out[[r, c]] /= sum;
+            }
+        }
+        self.push(out, Op::Softmax(a))
+    }
+
     /// Mean Squared Error -> nodo escalar (1,1).
     pub fn mse(&mut self, pred: usize, target: usize) -> usize {
         let diff = &self.values[pred] - &self.values[target];
@@ -109,6 +133,21 @@ impl Tape {
         }
         let v = Array2::from_elem((1, 1), acc / n);
         self.push(v, Op::Bce(pred, target))
+    }
+
+    /// Categorical Cross-Entropy -> nodo escalar (1,1). `pred` = salida de softmax,
+    /// `target` = one-hot. Promedia por filas (muestras). Clamp por estabilidad.
+    pub fn cce(&mut self, pred: usize, target: usize) -> usize {
+        let p = &self.values[pred];
+        let t = &self.values[target];
+        let n = p.nrows() as f32;
+        let mut acc = 0.0;
+        for (&pi, &ti) in p.iter().zip(t.iter()) {
+            let pc = pi.clamp(EPS, 1.0);
+            acc += -(ti * pc.ln());
+        }
+        let v = Array2::from_elem((1, 1), acc / n);
+        self.push(v, Op::Cce(pred, target))
     }
 
     /// Backprop desde `out` (típicamente la loss escalar). Devuelve el gradiente
@@ -154,6 +193,21 @@ impl Tape {
                     let d = t.mapv(|y| 1.0 - y * y);
                     grads[a] = &grads[a] + &(&g * &d);
                 }
+                Op::Softmax(a) => {
+                    // dz = s ⊙ (g - rowsum(g ⊙ s))
+                    let s = &self.values[i];
+                    let mut dz = Array2::zeros(s.raw_dim());
+                    for r in 0..s.nrows() {
+                        let mut dot = 0.0;
+                        for c in 0..s.ncols() {
+                            dot += g[[r, c]] * s[[r, c]];
+                        }
+                        for c in 0..s.ncols() {
+                            dz[[r, c]] = s[[r, c]] * (g[[r, c]] - dot);
+                        }
+                    }
+                    grads[a] = &grads[a] + &dz;
+                }
                 Op::Mse(p, t) => {
                     let gv = grads[i][[0, 0]];
                     let diff = &self.values[p] - &self.values[t];
@@ -169,6 +223,17 @@ impl Tape {
                     let dp = ndarray::Zip::from(pv).and(tv).map_collect(|&pi, &ti| {
                         let pc = pi.clamp(EPS, 1.0 - EPS);
                         (pc - ti) / (pc * (1.0 - pc)) / n * gv
+                    });
+                    grads[p] = &grads[p] + &dp;
+                }
+                Op::Cce(p, t) => {
+                    let gv = grads[i][[0, 0]];
+                    let pv = &self.values[p];
+                    let tv = &self.values[t];
+                    let n = pv.nrows() as f32;
+                    let dp = ndarray::Zip::from(pv).and(tv).map_collect(|&pi, &ti| {
+                        let pc = pi.clamp(EPS, 1.0);
+                        -(ti / pc) / n * gv
                     });
                     grads[p] = &grads[p] + &dp;
                 }

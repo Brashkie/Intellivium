@@ -85,4 +85,31 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
       expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
     }
   });
+
+  it("clasifica 3 clases con softmax + cce", async () => {
+    const X = tensor([
+      [2, 0],
+      [-2, 0],
+      [0, 2],
+      [0, -2],
+    ]);
+    const y = tensor([
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+      [0, 0, 1],
+    ]);
+    const model = new Model([dense(2, 12, "relu"), dense(12, 3, "softmax")]);
+    await model.train(X, y, { epochs: 2000, lr: 0.05, optimizer: "adam", loss: "cce" });
+
+    const pred = model.predict(X).toArray();
+    const argmax = (row: number[]) => row.indexOf(Math.max(...row));
+    expect(argmax(pred[0])).toBe(0);
+    expect(argmax(pred[1])).toBe(1);
+    expect(argmax(pred[2])).toBe(2);
+    // cada fila softmax suma ~1
+    for (const row of pred) {
+      expect(Math.abs(row.reduce((a, b) => a + b, 0) - 1)).toBeLessThan(1e-4);
+    }
+  });
 });

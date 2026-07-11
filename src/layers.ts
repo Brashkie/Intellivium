@@ -1,4 +1,4 @@
-export type ActivationName = "linear" | "relu" | "sigmoid" | "tanh";
+export type ActivationName = "linear" | "relu" | "sigmoid" | "tanh" | "softmax";
 
 export interface LayerSpec {
   inputDim: number;

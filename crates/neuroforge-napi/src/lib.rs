@@ -32,6 +32,10 @@ pub struct JsTrainConfig {
     pub eps: Option<f64>,
     /// Tamaño de mini-batch. 0/ausente = batch completo.
     pub batch_size: Option<u32>,
+    /// Clipping de gradiente por norma L2 global. 0/ausente = desactivado.
+    pub grad_clip: Option<f64>,
+    /// Decaimiento del lr por época (lr * lr_decay^epoch). Ausente = 1.0.
+    pub lr_decay: Option<f64>,
 }
 
 impl JsTrainConfig {
@@ -50,6 +54,8 @@ impl JsTrainConfig {
             loss: Loss::from_str(self.loss.as_deref().unwrap_or("mse")),
             optimizer,
             batch_size: self.batch_size.unwrap_or(0) as usize,
+            grad_clip: self.grad_clip.unwrap_or(0.0) as f32,
+            lr_decay: self.lr_decay.unwrap_or(1.0) as f32,
         }
     }
 }

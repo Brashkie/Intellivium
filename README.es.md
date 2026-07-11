@@ -45,12 +45,12 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.3.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.4.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
 - Operaciones: `matmul`, `add` con broadcast de bias, `relu`, `sigmoid`, `tanh`, `MSE`.
-- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE y BCE**, **entrenamiento por mini-batches** y **`save`/`load`** de modelos.
+- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, **mini-batches**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
 - Bindings N-API + API TypeScript tipado.
 - Validado de punta a punta en XOR (no lineal): **loss 0.247 → 0.0002**.
 
@@ -176,11 +176,12 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [x] ReLU
 - [x] Sigmoid
 - [x] Tanh
+- [x] Softmax
 
 **Funciones de pérdida**
 - [x] MSE
 - [x] BCE
-- [ ] Cross Entropy (categórica)
+- [x] Cross Entropy (categórica)
 
 **Optimizadores**
 - [x] SGD
@@ -208,8 +209,8 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [ ] Validation
 - [ ] Early Stopping
 - [ ] Checkpoints
-- [ ] Gradient Clipping
-- [ ] Learning Rate Scheduler
+- [x] Gradient Clipping
+- [x] Learning Rate Scheduler
 
 **Serialización**
 - [x] save()

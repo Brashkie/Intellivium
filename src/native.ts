@@ -18,6 +18,8 @@ export interface NativeTrainConfig {
   beta2?: number;
   eps?: number;
   batchSize?: number;
+  gradClip?: number;
+  lrDecay?: number;
 }
 
 export interface NativeLayerState {

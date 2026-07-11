@@ -3,17 +3,21 @@ import { type NativeModelInstance, getNativeModel } from "./native.js";
 import { Tensor } from "./tensor.js";
 
 export type OptimizerName = "sgd" | "adam";
-export type LossName = "mse" | "bce";
+export type LossName = "mse" | "bce" | "cce";
 
 export interface TrainOptions {
   epochs?: number;
   lr?: number;
   /** "sgd" | "adam" (default: "sgd") */
   optimizer?: OptimizerName;
-  /** "mse" | "bce" (default: "mse") */
+  /** "mse" | "bce" | "cce" (default: "mse") */
   loss?: LossName;
   /** Tamaño de mini-batch. 0/ausente = batch completo. */
   batchSize?: number;
+  /** Clipping de gradiente por norma L2 global. 0/ausente = desactivado. */
+  gradClip?: number;
+  /** Decaimiento del lr por época (lr * lrDecay^epoch). Ausente = 1.0 (sin decaimiento). */
+  lrDecay?: number;
   /** Hiperparámetros de Adam (opcionales). */
   beta1?: number;
   beta2?: number;
@@ -55,6 +59,8 @@ export class Model {
       optimizer: opts.optimizer ?? "sgd",
       loss: opts.loss ?? "mse",
       batchSize: opts.batchSize,
+      gradClip: opts.gradClip,
+      lrDecay: opts.lrDecay,
       beta1: opts.beta1,
       beta2: opts.beta2,
       eps: opts.eps,

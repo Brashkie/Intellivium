@@ -11,6 +11,7 @@ pub enum Activation {
     Relu,
     Sigmoid,
     Tanh,
+    Softmax,
 }
 
 impl Activation {
@@ -20,6 +21,7 @@ impl Activation {
             "relu" => Activation::Relu,
             "sigmoid" => Activation::Sigmoid,
             "tanh" => Activation::Tanh,
+            "softmax" => Activation::Softmax,
             _ => Activation::Linear,
         }
     }
@@ -30,6 +32,7 @@ impl Activation {
             Activation::Relu => "relu",
             Activation::Sigmoid => "sigmoid",
             Activation::Tanh => "tanh",
+            Activation::Softmax => "softmax",
         }
     }
 }
@@ -39,13 +42,15 @@ impl Activation {
 pub enum Loss {
     Mse,
     Bce,
+    Cce,
 }
 
 impl Loss {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Loss {
         match s.to_lowercase().as_str() {
-            "bce" | "binary_crossentropy" | "crossentropy" => Loss::Bce,
+            "bce" | "binary_crossentropy" => Loss::Bce,
+            "cce" | "categorical_crossentropy" | "crossentropy" => Loss::Cce,
             _ => Loss::Mse,
         }
     }
@@ -86,6 +91,10 @@ pub struct TrainConfig {
     pub optimizer: Optimizer,
     /// Tamaño de mini-batch. 0 = batch completo (todo el dataset por época).
     pub batch_size: usize,
+    /// Clipping de gradiente por norma L2 global. 0 = desactivado.
+    pub grad_clip: f32,
+    /// Decaimiento exponencial del lr por época: lr_e = lr * lr_decay^epoch. 1.0 = sin decaimiento.
+    pub lr_decay: f32,
 }
 
 impl TrainConfig {
@@ -96,6 +105,8 @@ impl TrainConfig {
             loss: Loss::Mse,
             optimizer: Optimizer::Sgd,
             batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
         }
     }
 
@@ -106,6 +117,8 @@ impl TrainConfig {
             loss: Loss::Mse,
             optimizer: Optimizer::adam_default(),
             batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
         }
     }
 }
@@ -242,6 +255,7 @@ impl Model {
                 Activation::Relu => tape.relu(z),
                 Activation::Sigmoid => tape.sigmoid(z),
                 Activation::Tanh => tape.tanh(z),
+                Activation::Softmax => tape.softmax(z),
             };
             params.push((wid, bid));
         }
@@ -256,8 +270,8 @@ impl Model {
     }
 
     /// Un paso de entrenamiento sobre un batch: forward, backward y update.
-    /// Devuelve la loss del batch.
-    fn step(&mut self, xb: &Array2<f32>, yb: &Array2<f32>, cfg: &TrainConfig) -> f32 {
+    /// Aplica clipping por norma global si `cfg.grad_clip > 0`. Devuelve la loss.
+    fn step(&mut self, xb: &Array2<f32>, yb: &Array2<f32>, cfg: &TrainConfig, lr: f32) -> f32 {
         let mut tape = Tape::new();
         let xid = tape.leaf(xb.clone());
         let yid = tape.leaf(yb.clone());
@@ -265,15 +279,37 @@ impl Model {
         let loss = match cfg.loss {
             Loss::Mse => tape.mse(out, yid),
             Loss::Bce => tape.bce(out, yid),
+            Loss::Cce => tape.cce(out, yid),
         };
         let loss_val = tape.value(loss)[[0, 0]];
 
         let grads = tape.backward(loss);
+        // Recoge los gradientes de los parámetros (W, b) por capa.
+        let mut pgrads: Vec<(Array2<f32>, Array2<f32>)> = params
+            .iter()
+            .map(|(wid, bid)| (grads[*wid].clone(), grads[*bid].clone()))
+            .collect();
+
+        // Gradient clipping por norma L2 global.
+        if cfg.grad_clip > 0.0 {
+            let mut sq = 0.0f32;
+            for (gw, gb) in &pgrads {
+                sq += gw.iter().map(|&v| v * v).sum::<f32>();
+                sq += gb.iter().map(|&v| v * v).sum::<f32>();
+            }
+            let norm = sq.sqrt();
+            if norm > cfg.grad_clip {
+                let scale = cfg.grad_clip / (norm + 1e-12);
+                for (gw, gb) in &mut pgrads {
+                    gw.mapv_inplace(|v| v * scale);
+                    gb.mapv_inplace(|v| v * scale);
+                }
+            }
+        }
+
         self.t += 1;
-        for (li, (wid, bid)) in params.iter().enumerate() {
-            let gw = grads[*wid].clone();
-            let gb = grads[*bid].clone();
-            self.layers[li].apply_grads(&gw, &gb, &cfg.optimizer, cfg.lr, self.t);
+        for (li, (gw, gb)) in pgrads.iter().enumerate() {
+            self.layers[li].apply_grads(gw, gb, &cfg.optimizer, lr, self.t);
         }
         loss_val
     }
@@ -291,7 +327,9 @@ impl Model {
         let mut history = Vec::with_capacity(cfg.epochs);
         let mut idx: Vec<usize> = (0..n).collect();
 
-        for _ in 0..cfg.epochs {
+        for epoch in 0..cfg.epochs {
+            let lr = cfg.lr * cfg.lr_decay.powi(epoch as i32);
+
             if bs < n {
                 // Fisher-Yates shuffle.
                 for i in (1..n).rev() {
@@ -307,7 +345,7 @@ impl Model {
                 let batch = &idx[start..end];
                 let xb = x.select(Axis(0), batch);
                 let yb = y.select(Axis(0), batch);
-                let lv = self.step(&xb, &yb, cfg);
+                let lv = self.step(&xb, &yb, cfg, lr);
                 epoch_loss += lv * (end - start) as f32;
                 start = end;
             }
@@ -365,6 +403,8 @@ mod tests {
             loss: Loss::Bce,
             optimizer: Optimizer::adam_default(),
             batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -386,6 +426,11 @@ mod tests {
             Optimizer::Adam { .. }
         ));
         assert!(matches!(Optimizer::from_str("sgd"), Optimizer::Sgd));
+        assert!(matches!(
+            Activation::from_str("softmax"),
+            Activation::Softmax
+        ));
+        assert!(matches!(Loss::from_str("cce"), Loss::Cce));
     }
 
     #[test]
@@ -399,6 +444,8 @@ mod tests {
             loss: Loss::Bce,
             optimizer: Optimizer::adam_default(),
             batch_size: 2, // mini-batches de 2 sobre 4 muestras
+            grad_clip: 5.0,
+            lr_decay: 1.0,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -430,6 +477,58 @@ mod tests {
                 (before[[r, 0]] - after[[r, 0]]).abs() < 1e-6,
                 "mismatch fila {r}"
             );
+        }
+    }
+
+    #[test]
+    fn learns_3class_softmax_cce() {
+        // 4 puntos, 3 clases separables. Salida softmax + loss CCE.
+        let mut rng = Rng::new(3);
+        let x = array![[2.0, 0.0], [-2.0, 0.0], [0.0, 2.0], [0.0, -2.0]];
+        // clases: 0, 1, 2, 2 (one-hot)
+        let y = array![
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let mut model = Model::new(vec![
+            Dense::new(2, 12, Activation::Relu, &mut rng),
+            Dense::new(12, 3, Activation::Softmax, &mut rng),
+        ]);
+        let cfg = TrainConfig {
+            epochs: 2000,
+            lr: 0.05,
+            loss: Loss::Cce,
+            optimizer: Optimizer::adam_default(),
+            batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
+        };
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            *hist.last().unwrap() < 0.1,
+            "CCE final demasiado alta: {}",
+            hist.last().unwrap()
+        );
+
+        // argmax de cada fila debe coincidir con la clase esperada.
+        let pred = model.predict(&x);
+        let expected = [0, 1, 2, 2];
+        for (r, &want) in expected.iter().enumerate() {
+            let mut best = 0;
+            for c in 1..3 {
+                if pred[[r, c]] > pred[[r, best]] {
+                    best = c;
+                }
+            }
+            assert_eq!(best, want, "fila {r}: predijo {best}, esperaba {want}");
+        }
+
+        // Cada fila de softmax debe sumar ~1.
+        for r in 0..pred.nrows() {
+            let s: f32 = (0..3).map(|c| pred[[r, c]]).sum();
+            assert!((s - 1.0).abs() < 1e-4, "softmax fila {r} suma {s}");
         }
     }
 }

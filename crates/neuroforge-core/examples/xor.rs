@@ -21,6 +21,8 @@ fn main() {
         loss: Loss::Bce,
         optimizer: Optimizer::adam_default(),
         batch_size: 0,
+        grad_clip: 0.0,
+        lr_decay: 1.0,
     };
     let history = model.train(&x, &y, &cfg);
 
