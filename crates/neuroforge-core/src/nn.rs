@@ -95,6 +95,27 @@ pub struct TrainConfig {
     pub grad_clip: f32,
     /// Decaimiento exponencial del lr por época: lr_e = lr * lr_decay^epoch. 1.0 = sin decaimiento.
     pub lr_decay: f32,
+    /// Épocas sin mejora antes de parar (early stopping). 0 = desactivado.
+    pub patience: usize,
+    /// Mejora mínima para considerar que hubo progreso.
+    pub min_delta: f32,
+    /// Al terminar, restaurar los pesos de la mejor época (checkpoint).
+    pub restore_best: bool,
+}
+
+/// Resultado de un entrenamiento con validación.
+#[derive(Clone, Debug)]
+pub struct TrainResult {
+    /// Loss de entrenamiento por época.
+    pub history: Vec<f32>,
+    /// Loss de validación por época (vacío si no se pasó set de validación).
+    pub val_history: Vec<f32>,
+    /// Índice de la mejor época (por val loss, o train loss si no hay validación).
+    pub best_epoch: usize,
+    /// Mejor loss observada.
+    pub best_loss: f32,
+    /// Si el entrenamiento se detuvo por early stopping.
+    pub stopped_early: bool,
 }
 
 impl TrainConfig {
@@ -107,6 +128,9 @@ impl TrainConfig {
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
         }
     }
 
@@ -119,6 +143,9 @@ impl TrainConfig {
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
         }
     }
 }
@@ -314,9 +341,45 @@ impl Model {
         loss_val
     }
 
-    /// Entrena según `cfg`. Con `batch_size > 0` usa mini-batches barajados por
-    /// época; con 0 usa el batch completo. Devuelve la loss media por época.
-    pub fn train(&mut self, x: &Array2<f32>, y: &Array2<f32>, cfg: &TrainConfig) -> Vec<f32> {
+    /// Calcula la loss sobre un conjunto sin actualizar pesos.
+    pub fn evaluate(&self, x: &Array2<f32>, y: &Array2<f32>, loss: Loss) -> f32 {
+        let mut tape = Tape::new();
+        let xid = tape.leaf(x.clone());
+        let yid = tape.leaf(y.clone());
+        let (out, _) = self.forward_tape(&mut tape, xid);
+        let l = match loss {
+            Loss::Mse => tape.mse(out, yid),
+            Loss::Bce => tape.bce(out, yid),
+            Loss::Cce => tape.cce(out, yid),
+        };
+        tape.value(l)[[0, 0]]
+    }
+
+    /// Copia los pesos actuales (checkpoint en memoria).
+    fn snapshot(&self) -> Vec<(Array2<f32>, Array2<f32>)> {
+        self.layers
+            .iter()
+            .map(|l| (l.w.clone(), l.b.clone()))
+            .collect()
+    }
+
+    /// Restaura pesos desde un snapshot.
+    fn restore(&mut self, snap: Vec<(Array2<f32>, Array2<f32>)>) {
+        for (i, (w, b)) in snap.into_iter().enumerate() {
+            self.layers[i].w = w;
+            self.layers[i].b = b;
+        }
+    }
+
+    /// Entrena con validación opcional, early stopping y checkpoint del mejor
+    /// modelo. Si `val` es `None` el criterio de mejora usa la loss de train.
+    pub fn train_with_validation(
+        &mut self,
+        x: &Array2<f32>,
+        y: &Array2<f32>,
+        val: Option<(&Array2<f32>, &Array2<f32>)>,
+        cfg: &TrainConfig,
+    ) -> TrainResult {
         let n = x.nrows();
         let bs = if cfg.batch_size == 0 || cfg.batch_size >= n {
             n
@@ -325,13 +388,19 @@ impl Model {
         };
 
         let mut history = Vec::with_capacity(cfg.epochs);
+        let mut val_history = Vec::new();
         let mut idx: Vec<usize> = (0..n).collect();
+
+        let mut best_loss = f32::INFINITY;
+        let mut best_epoch = 0usize;
+        let mut best_snap: Option<Vec<(Array2<f32>, Array2<f32>)>> = None;
+        let mut since_improve = 0usize;
+        let mut stopped_early = false;
 
         for epoch in 0..cfg.epochs {
             let lr = cfg.lr * cfg.lr_decay.powi(epoch as i32);
 
             if bs < n {
-                // Fisher-Yates shuffle.
                 for i in (1..n).rev() {
                     let j = self.rng.usize_below(i + 1);
                     idx.swap(i, j);
@@ -349,9 +418,54 @@ impl Model {
                 epoch_loss += lv * (end - start) as f32;
                 start = end;
             }
-            history.push(epoch_loss / n as f32);
+            let train_loss = epoch_loss / n as f32;
+            history.push(train_loss);
+
+            // Criterio de mejora: val loss si hay validación, si no train loss.
+            let monitor = match val {
+                Some((vx, vy)) => {
+                    let vl = self.evaluate(vx, vy, cfg.loss);
+                    val_history.push(vl);
+                    vl
+                }
+                None => train_loss,
+            };
+
+            if monitor < best_loss - cfg.min_delta {
+                best_loss = monitor;
+                best_epoch = epoch;
+                since_improve = 0;
+                if cfg.restore_best {
+                    best_snap = Some(self.snapshot());
+                }
+            } else {
+                since_improve += 1;
+                if cfg.patience > 0 && since_improve >= cfg.patience {
+                    stopped_early = true;
+                    break;
+                }
+            }
         }
-        history
+
+        if cfg.restore_best {
+            if let Some(snap) = best_snap {
+                self.restore(snap);
+            }
+        }
+
+        TrainResult {
+            history,
+            val_history,
+            best_epoch,
+            best_loss,
+            stopped_early,
+        }
+    }
+
+    /// Entrena según `cfg`. Con `batch_size > 0` usa mini-batches barajados por
+    /// época; con 0 usa el batch completo. Devuelve la loss media por época.
+    pub fn train(&mut self, x: &Array2<f32>, y: &Array2<f32>, cfg: &TrainConfig) -> Vec<f32> {
+        self.train_with_validation(x, y, None, cfg).history
     }
 }
 
@@ -405,6 +519,9 @@ mod tests {
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -446,6 +563,9 @@ mod tests {
             batch_size: 2, // mini-batches de 2 sobre 4 muestras
             grad_clip: 5.0,
             lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -504,6 +624,9 @@ mod tests {
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -530,5 +653,55 @@ mod tests {
             let s: f32 = (0..3).map(|c| pred[[r, c]]).sum();
             assert!((s - 1.0).abs() < 1e-4, "softmax fila {r} suma {s}");
         }
+    }
+
+    #[test]
+    fn early_stopping_para_antes() {
+        let mut rng = Rng::new(5);
+        let (x, y) = xor_data();
+        let mut model = xor_model(&mut rng);
+        let mut cfg = TrainConfig::adam(5000, 0.05);
+        cfg.loss = Loss::Bce;
+        cfg.patience = 20;
+        cfg.min_delta = 1e-4;
+        let res = model.train_with_validation(&x, &y, None, &cfg);
+
+        assert!(res.stopped_early, "debió parar por paciencia");
+        assert!(res.history.len() < 5000, "no recortó épocas");
+        assert_eq!(res.history.len(), res.best_epoch + cfg.patience + 1);
+    }
+
+    #[test]
+    fn validacion_registra_val_history() {
+        let mut rng = Rng::new(11);
+        let (x, y) = xor_data();
+        let mut model = xor_model(&mut rng);
+        let mut cfg = TrainConfig::adam(200, 0.05);
+        cfg.loss = Loss::Bce;
+        // Usamos el mismo set como validación solo para verificar el cableado.
+        let res = model.train_with_validation(&x, &y, Some((&x, &y)), &cfg);
+
+        assert_eq!(res.val_history.len(), res.history.len());
+        assert!(res.best_loss.is_finite());
+        assert!(res.val_history.last().unwrap() < res.val_history.first().unwrap());
+    }
+
+    #[test]
+    fn restore_best_devuelve_mejores_pesos() {
+        let mut rng = Rng::new(21);
+        let (x, y) = xor_data();
+        let mut model = xor_model(&mut rng);
+        let mut cfg = TrainConfig::adam(300, 0.05);
+        cfg.loss = Loss::Bce;
+        cfg.restore_best = true;
+        let res = model.train_with_validation(&x, &y, Some((&x, &y)), &cfg);
+
+        // Tras restaurar, la loss del modelo debe igualar la mejor observada.
+        let now = model.evaluate(&x, &y, cfg.loss);
+        assert!(
+            (now - res.best_loss).abs() < 1e-5,
+            "loss actual {now} != best {}",
+            res.best_loss
+        );
     }
 }

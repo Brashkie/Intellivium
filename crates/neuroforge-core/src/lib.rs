@@ -9,6 +9,6 @@ pub mod nn;
 pub mod rng;
 pub mod tape;
 
-pub use nn::{Activation, Dense, Loss, Model, Optimizer, TrainConfig};
+pub use nn::{Activation, Dense, Loss, Model, Optimizer, TrainConfig, TrainResult};
 pub use rng::Rng;
 pub use tape::Tape;

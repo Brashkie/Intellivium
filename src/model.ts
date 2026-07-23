@@ -18,10 +18,36 @@ export interface TrainOptions {
   gradClip?: number;
   /** Decaimiento del lr por época (lr * lrDecay^epoch). Ausente = 1.0 (sin decaimiento). */
   lrDecay?: number;
+  /** Épocas sin mejora antes de parar (early stopping). 0/ausente = desactivado. */
+  patience?: number;
+  /** Mejora mínima para contar como progreso. */
+  minDelta?: number;
+  /** Restaurar los pesos de la mejor época al terminar (checkpoint). */
+  restoreBest?: boolean;
   /** Hiperparámetros de Adam (opcionales). */
   beta1?: number;
   beta2?: number;
   eps?: number;
+}
+
+/** Datos de validación para {@link Model.fit}. */
+export interface ValidationData {
+  x: Tensor;
+  y: Tensor;
+}
+
+/** Resultado detallado de {@link Model.fit}. */
+export interface TrainOutcome {
+  /** Loss de entrenamiento por época. */
+  history: number[];
+  /** Loss de validación por época (vacío si no se pasó validación). */
+  valHistory: number[];
+  /** Época con la mejor loss monitorizada. */
+  bestEpoch: number;
+  /** Mejor loss observada. */
+  bestLoss: number;
+  /** Si se detuvo por early stopping. */
+  stoppedEarly: boolean;
 }
 
 /** Estado serializable de una capa. */
@@ -51,9 +77,8 @@ export class Model {
     this.native = new NativeModel(layers, seed);
   }
 
-  /** Entrena según las opciones. Resuelve con el historial de loss por época. */
-  async train(x: Tensor, y: Tensor, opts: TrainOptions = {}): Promise<number[]> {
-    const config = {
+  private buildConfig(opts: TrainOptions) {
+    return {
       epochs: opts.epochs ?? 100,
       lr: opts.lr ?? 0.01,
       optimizer: opts.optimizer ?? "sgd",
@@ -61,11 +86,50 @@ export class Model {
       batchSize: opts.batchSize,
       gradClip: opts.gradClip,
       lrDecay: opts.lrDecay,
+      patience: opts.patience,
+      minDelta: opts.minDelta,
+      restoreBest: opts.restoreBest,
       beta1: opts.beta1,
       beta2: opts.beta2,
       eps: opts.eps,
     };
+  }
+
+  /** Entrena según las opciones. Resuelve con el historial de loss por época. */
+  async train(x: Tensor, y: Tensor, opts: TrainOptions = {}): Promise<number[]> {
+    const config = this.buildConfig(opts);
     return this.native.train(x.data, x.rows, x.cols, y.data, y.rows, y.cols, config);
+  }
+
+  /**
+   * Entrena con validación opcional, early stopping y checkpoint del mejor
+   * modelo. Devuelve historiales y metadatos.
+   */
+  async fit(
+    x: Tensor,
+    y: Tensor,
+    opts: TrainOptions = {},
+    validation?: ValidationData,
+  ): Promise<TrainOutcome> {
+    const config = this.buildConfig(opts);
+    return this.native.fit(
+      x.data,
+      x.rows,
+      x.cols,
+      y.data,
+      y.rows,
+      y.cols,
+      config,
+      validation?.x.data,
+      validation?.x.rows,
+      validation?.y.data,
+      validation?.y.cols,
+    );
+  }
+
+  /** Calcula la loss sobre un conjunto, sin entrenar. */
+  evaluate(x: Tensor, y: Tensor, loss: LossName = "mse"): number {
+    return this.native.evaluate(x.data, x.rows, x.cols, y.data, y.cols, loss);
   }
 
   /** Predice salidas para un batch de entradas. */

@@ -20,6 +20,17 @@ export interface NativeTrainConfig {
   batchSize?: number;
   gradClip?: number;
   lrDecay?: number;
+  patience?: number;
+  minDelta?: number;
+  restoreBest?: boolean;
+}
+
+export interface NativeTrainOutcome {
+  history: number[];
+  valHistory: number[];
+  bestEpoch: number;
+  bestLoss: number;
+  stoppedEarly: boolean;
 }
 
 export interface NativeLayerState {
@@ -40,6 +51,27 @@ export interface NativeModelInstance {
     yCols: number,
     config: NativeTrainConfig,
   ): number[];
+  fit(
+    x: Float64Array,
+    xRows: number,
+    xCols: number,
+    y: Float64Array,
+    yRows: number,
+    yCols: number,
+    config: NativeTrainConfig,
+    valX?: Float64Array,
+    valXRows?: number,
+    valY?: Float64Array,
+    valYCols?: number,
+  ): NativeTrainOutcome;
+  evaluate(
+    x: Float64Array,
+    xRows: number,
+    xCols: number,
+    y: Float64Array,
+    yCols: number,
+    loss?: string,
+  ): number;
   predict(x: Float64Array, xRows: number, xCols: number): Float64Array;
   save(): NativeLayerState[];
   setWeights(index: number, weights: Float64Array, bias: Float64Array): void;

@@ -1,6 +1,6 @@
 {
   "name": "intellivium",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Intellivium: framework de deep learning con núcleo en Rust, nativo de Node.js. Sin C/C++.",
   "license": "Apache-2.0",
   "author": "Brashkie",

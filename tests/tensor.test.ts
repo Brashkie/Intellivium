@@ -39,4 +39,9 @@ describe("Tensor", () => {
     expect(t.shape).toEqual([0, 0]);
     expect(t.toArray()).toEqual([]);
   });
+  it("desde un arreglo vacío da 0 columnas", () => {
+    const t = tensor([]);
+    expect(t.shape).toEqual([0, 0]);
+    expect(t.toArray()).toEqual([]);
+  });
 });

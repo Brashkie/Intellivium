@@ -6,6 +6,17 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-11
+### Added
+- **Validación durante el entrenamiento**: `model.fit(x, y, opts, { x, y })`
+  devuelve `history`, `valHistory`, `bestEpoch`, `bestLoss` y `stoppedEarly`.
+- **Early stopping** por paciencia (`patience`, `minDelta`).
+- **Checkpoints**: `restoreBest` restaura los pesos de la mejor época al terminar.
+- **`model.evaluate(x, y, loss)`**: calcula la loss sin entrenar.
+- **`TensorDataset`** (con `select` y `split` determinista) y **`DataLoader`**
+  (iterable por lotes, con shuffle opcional).
+- En Rust: `Model::train_with_validation`, `Model::evaluate` y `TrainResult`.
+
 ## [0.4.0] - 2026-07-08
 ### Added
 - **Softmax** (activación por filas, estable) y **Categorical Cross-Entropy (CCE)**:

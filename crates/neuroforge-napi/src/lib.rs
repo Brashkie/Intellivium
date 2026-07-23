@@ -36,6 +36,22 @@ pub struct JsTrainConfig {
     pub grad_clip: Option<f64>,
     /// Decaimiento del lr por época (lr * lr_decay^epoch). Ausente = 1.0.
     pub lr_decay: Option<f64>,
+    /// Épocas sin mejora antes de parar. 0/ausente = desactivado.
+    pub patience: Option<u32>,
+    /// Mejora mínima para contar como progreso.
+    pub min_delta: Option<f64>,
+    /// Restaurar los pesos de la mejor época al terminar.
+    pub restore_best: Option<bool>,
+}
+
+/// Resultado del entrenamiento devuelto a JS.
+#[napi(object)]
+pub struct TrainOutcome {
+    pub history: Vec<f64>,
+    pub val_history: Vec<f64>,
+    pub best_epoch: u32,
+    pub best_loss: f64,
+    pub stopped_early: bool,
 }
 
 impl JsTrainConfig {
@@ -56,6 +72,9 @@ impl JsTrainConfig {
             batch_size: self.batch_size.unwrap_or(0) as usize,
             grad_clip: self.grad_clip.unwrap_or(0.0) as f32,
             lr_decay: self.lr_decay.unwrap_or(1.0) as f32,
+            patience: self.patience.unwrap_or(0) as usize,
+            min_delta: self.min_delta.unwrap_or(0.0) as f32,
+            restore_best: self.restore_best.unwrap_or(false),
         }
     }
 }
@@ -121,6 +140,69 @@ impl JsModel {
         let ym = to_array2(&y, y_rows as usize, y_cols as usize)?;
         let hist = self.inner.train(&xm, &ym, &config.to_core());
         Ok(hist.into_iter().map(|v| v as f64).collect())
+    }
+
+    /// Entrena con validación opcional, early stopping y checkpoint del mejor
+    /// modelo. Devuelve historiales + metadatos.
+    #[napi]
+    #[allow(clippy::too_many_arguments)]
+    pub fn fit(
+        &mut self,
+        x: Float64Array,
+        x_rows: u32,
+        x_cols: u32,
+        y: Float64Array,
+        y_rows: u32,
+        y_cols: u32,
+        config: JsTrainConfig,
+        val_x: Option<Float64Array>,
+        val_x_rows: Option<u32>,
+        val_y: Option<Float64Array>,
+        val_y_cols: Option<u32>,
+    ) -> Result<TrainOutcome> {
+        let xm = to_array2(&x, x_rows as usize, x_cols as usize)?;
+        let ym = to_array2(&y, y_rows as usize, y_cols as usize)?;
+
+        let val_pair = match (val_x, val_x_rows, val_y, val_y_cols) {
+            (Some(vx), Some(vr), Some(vy), Some(vc)) => {
+                let vxm = to_array2(&vx, vr as usize, x_cols as usize)?;
+                let vym = to_array2(&vy, vr as usize, vc as usize)?;
+                Some((vxm, vym))
+            }
+            _ => None,
+        };
+
+        let res = self.inner.train_with_validation(
+            &xm,
+            &ym,
+            val_pair.as_ref().map(|(a, b)| (a, b)),
+            &config.to_core(),
+        );
+
+        Ok(TrainOutcome {
+            history: res.history.into_iter().map(|v| v as f64).collect(),
+            val_history: res.val_history.into_iter().map(|v| v as f64).collect(),
+            best_epoch: res.best_epoch as u32,
+            best_loss: res.best_loss as f64,
+            stopped_early: res.stopped_early,
+        })
+    }
+
+    /// Calcula la loss sobre un conjunto, sin entrenar.
+    #[napi]
+    pub fn evaluate(
+        &self,
+        x: Float64Array,
+        x_rows: u32,
+        x_cols: u32,
+        y: Float64Array,
+        y_cols: u32,
+        loss: Option<String>,
+    ) -> Result<f64> {
+        let xm = to_array2(&x, x_rows as usize, x_cols as usize)?;
+        let ym = to_array2(&y, x_rows as usize, y_cols as usize)?;
+        let l = Loss::from_str(loss.as_deref().unwrap_or("mse"));
+        Ok(self.inner.evaluate(&xm, &ym, l) as f64)
     }
 
     /// Predice. Devuelve un Float64Array plano (row-major) de shape (x_rows, out_dim).

@@ -45,12 +45,12 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.4.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.5.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
 - Operaciones: `matmul`, `add` con broadcast de bias, `relu`, `sigmoid`, `tanh`, `MSE`.
-- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, **mini-batches**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
+- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, **mini-batches** con `Dataset`/`DataLoader`, **validación + early stopping + checkpoints**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
 - Bindings N-API + API TypeScript tipado.
 - Validado de punta a punta en XOR (no lineal): **loss 0.247 → 0.0002**.
 
@@ -192,23 +192,23 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [x] NAPI
 - [x] npm
 
-### Fase 2 — Entrenamiento · 🟡
+### Fase 2 — Entrenamiento · 🟡 (casi completa)
 *Que entrenar un modelo sea cómodo.*
 
 **Dataset**
-- [ ] Dataset
-- [ ] TensorDataset
+- [x] Dataset
+- [x] TensorDataset
 - [ ] Custom Dataset
 
 **DataLoader**
 - [x] Mini Batch
 - [x] Shuffle
-- [ ] Batch Iterator
+- [x] Batch Iterator
 
 **Entrenamiento**
-- [ ] Validation
-- [ ] Early Stopping
-- [ ] Checkpoints
+- [x] Validation
+- [x] Early Stopping
+- [x] Checkpoints
 - [x] Gradient Clipping
 - [x] Learning Rate Scheduler
 

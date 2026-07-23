@@ -23,6 +23,9 @@ fn main() {
         batch_size: 0,
         grad_clip: 0.0,
         lr_decay: 1.0,
+        patience: 0,
+        min_delta: 0.0,
+        restore_best: false,
     };
     let history = model.train(&x, &y, &cfg);
 
