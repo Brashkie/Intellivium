@@ -84,7 +84,7 @@
     "example": "node examples/xor.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
+    "@biomejs/biome": "^2.5.2",
     "@napi-rs/cli": "^2.18.4",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.8",
