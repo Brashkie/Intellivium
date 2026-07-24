@@ -13,13 +13,26 @@ enum Op {
     Relu(usize),
     Sigmoid(usize),
     Tanh(usize),
-    Softmax(usize),    // softmax por filas (row-wise)
-    Mse(usize, usize), // pred, target -> escalar (1,1)
-    Bce(usize, usize), // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
-    Cce(usize, usize), // categorical cross-entropy (pred=softmax, target=one-hot)
+    Softmax(usize),      // softmax por filas (row-wise)
+    LeakyRelu(usize),    // x>0 ? x : 0.01x
+    Elu(usize),          // x>0 ? x : e^x - 1
+    Gelu(usize),         // x * sigmoid(1.702x) (aprox.)
+    Mse(usize, usize),   // pred, target -> escalar (1,1)
+    Bce(usize, usize),   // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
+    Cce(usize, usize),   // categorical cross-entropy (pred=softmax, target=one-hot)
+    Mae(usize, usize),   // mean absolute error (L1)
+    Huber(usize, usize), // Huber loss (delta=1.0)
 }
 
 const EPS: f32 = 1e-7;
+const LEAKY_ALPHA: f32 = 0.01;
+const GELU_C: f32 = 1.702;
+const HUBER_DELTA: f32 = 1.0;
+
+#[inline]
+fn sigmoid(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
+}
 
 /// Una cinta de cómputo. Cada `Var` es un índice (usize) hacia esta cinta.
 pub struct Tape {
@@ -111,6 +124,21 @@ impl Tape {
         self.push(out, Op::Softmax(a))
     }
 
+    pub fn leaky_relu(&mut self, a: usize) -> usize {
+        let v = self.values[a].mapv(|x| if x > 0.0 { x } else { LEAKY_ALPHA * x });
+        self.push(v, Op::LeakyRelu(a))
+    }
+
+    pub fn elu(&mut self, a: usize) -> usize {
+        let v = self.values[a].mapv(|x| if x > 0.0 { x } else { x.exp() - 1.0 });
+        self.push(v, Op::Elu(a))
+    }
+
+    pub fn gelu(&mut self, a: usize) -> usize {
+        let v = self.values[a].mapv(|x| x * sigmoid(GELU_C * x));
+        self.push(v, Op::Gelu(a))
+    }
+
     /// Mean Squared Error -> nodo escalar (1,1).
     pub fn mse(&mut self, pred: usize, target: usize) -> usize {
         let diff = &self.values[pred] - &self.values[target];
@@ -148,6 +176,33 @@ impl Tape {
         }
         let v = Array2::from_elem((1, 1), acc / n);
         self.push(v, Op::Cce(pred, target))
+    }
+
+    /// Mean Absolute Error (L1) -> escalar (1,1).
+    pub fn mae(&mut self, pred: usize, target: usize) -> usize {
+        let diff = &self.values[pred] - &self.values[target];
+        let n = diff.len() as f32;
+        let loss = diff.iter().map(|&d| d.abs()).sum::<f32>() / n;
+        self.push(Array2::from_elem((1, 1), loss), Op::Mae(pred, target))
+    }
+
+    /// Huber loss (delta=1.0) -> escalar (1,1). Cuadrática cerca de 0, lineal lejos.
+    pub fn huber(&mut self, pred: usize, target: usize) -> usize {
+        let diff = &self.values[pred] - &self.values[target];
+        let n = diff.len() as f32;
+        let loss = diff
+            .iter()
+            .map(|&e| {
+                let a = e.abs();
+                if a <= HUBER_DELTA {
+                    0.5 * e * e
+                } else {
+                    HUBER_DELTA * (a - 0.5 * HUBER_DELTA)
+                }
+            })
+            .sum::<f32>()
+            / n;
+        self.push(Array2::from_elem((1, 1), loss), Op::Huber(pred, target))
     }
 
     /// Backprop desde `out` (típicamente la loss escalar). Devuelve el gradiente
@@ -208,6 +263,23 @@ impl Tape {
                     }
                     grads[a] = &grads[a] + &dz;
                 }
+                Op::LeakyRelu(a) => {
+                    let d = self.values[a].mapv(|x| if x > 0.0 { 1.0 } else { LEAKY_ALPHA });
+                    grads[a] = &grads[a] + &(&g * &d);
+                }
+                Op::Elu(a) => {
+                    // x>0 -> 1 ; x<=0 -> e^x
+                    let d = self.values[a].mapv(|x| if x > 0.0 { 1.0 } else { x.exp() });
+                    grads[a] = &grads[a] + &(&g * &d);
+                }
+                Op::Gelu(a) => {
+                    // f = x*s(cx) ; f' = s(cx) + x*c*s(cx)*(1-s(cx))
+                    let d = self.values[a].mapv(|x| {
+                        let s = sigmoid(GELU_C * x);
+                        s + x * GELU_C * s * (1.0 - s)
+                    });
+                    grads[a] = &grads[a] + &(&g * &d);
+                }
                 Op::Mse(p, t) => {
                     let gv = grads[i][[0, 0]];
                     let diff = &self.values[p] - &self.values[t];
@@ -234,6 +306,36 @@ impl Tape {
                     let dp = ndarray::Zip::from(pv).and(tv).map_collect(|&pi, &ti| {
                         let pc = pi.clamp(EPS, 1.0);
                         -(ti / pc) / n * gv
+                    });
+                    grads[p] = &grads[p] + &dp;
+                }
+                Op::Mae(p, t) => {
+                    let gv = grads[i][[0, 0]];
+                    let diff = &self.values[p] - &self.values[t];
+                    let n = diff.len() as f32;
+                    let dp = diff.mapv(|e| {
+                        let s = if e > 0.0 {
+                            1.0
+                        } else if e < 0.0 {
+                            -1.0
+                        } else {
+                            0.0
+                        };
+                        s / n * gv
+                    });
+                    grads[p] = &grads[p] + &dp;
+                }
+                Op::Huber(p, t) => {
+                    let gv = grads[i][[0, 0]];
+                    let diff = &self.values[p] - &self.values[t];
+                    let n = diff.len() as f32;
+                    let dp = diff.mapv(|e| {
+                        let g = if e.abs() <= HUBER_DELTA {
+                            e
+                        } else {
+                            HUBER_DELTA * e.signum()
+                        };
+                        g / n * gv
                     });
                     grads[p] = &grads[p] + &dp;
                 }

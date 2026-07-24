@@ -45,12 +45,12 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.5.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.6.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
 - Operaciones: `matmul`, `add` con broadcast de bias, `relu`, `sigmoid`, `tanh`, `MSE`.
-- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, **mini-batches** con `Dataset`/`DataLoader`, **validación + early stopping + checkpoints**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
+- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, activaciones extra (**LeakyReLU / ELU / GELU**) y losses **MAE / Huber**, **vistas de tensor** (reshape / transpose / slice), **mini-batches** con `Dataset`/`DataLoader`, **validación + early stopping + checkpoints**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
 - Bindings N-API + API TypeScript tipado.
 - Validado de punta a punta en XOR (no lineal): **loss 0.247 → 0.0002**.
 
@@ -151,7 +151,7 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 
 **Leyenda:** ✅ Completo · 🟡 Parcial · 🔴 Planeado
 
-### Fase 1 — Núcleo de Deep Learning · 🟡
+### Fase 1 — Núcleo de Deep Learning · 🟡 (solo falta multi-dtype)
 *Un motor estable y confiable.*
 
 **Tensores**
@@ -160,7 +160,7 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [x] Operaciones básicas
 - [x] MatMul
 - [x] Shape checking
-- [ ] Tensor Views
+- [x] Tensor Views
 
 **Autograd**
 - [x] Reverse Mode
@@ -177,11 +177,16 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [x] Sigmoid
 - [x] Tanh
 - [x] Softmax
+- [x] LeakyReLU
+- [x] ELU
+- [x] GELU
 
 **Funciones de pérdida**
 - [x] MSE
 - [x] BCE
 - [x] Cross Entropy (categórica)
+- [x] MAE (L1)
+- [x] Huber
 
 **Optimizadores**
 - [x] SGD

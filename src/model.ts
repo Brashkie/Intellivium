@@ -3,7 +3,7 @@ import { type NativeModelInstance, getNativeModel } from "./native.js";
 import { Tensor } from "./tensor.js";
 
 export type OptimizerName = "sgd" | "adam";
-export type LossName = "mse" | "bce" | "cce";
+export type LossName = "mse" | "bce" | "cce" | "mae" | "huber";
 
 export interface TrainOptions {
   epochs?: number;

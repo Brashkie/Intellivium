@@ -44,4 +44,51 @@ describe("Tensor", () => {
     expect(t.shape).toEqual([0, 0]);
     expect(t.toArray()).toEqual([]);
   });
+
+  it("reshape comparte buffer y valida el total", () => {
+    const t = tensor([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    const r = t.reshape(3, 2);
+    expect(r.shape).toEqual([3, 2]);
+    expect(r.toArray()).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ]);
+    expect(() => t.reshape(4, 2)).toThrow();
+  });
+
+  it("reshape infiere una dimensión con -1", () => {
+    const t = tensor([[1, 2, 3, 4]]);
+    expect(t.reshape(2, -1).shape).toEqual([2, 2]);
+    expect(t.reshape(-1, 1).shape).toEqual([4, 1]);
+  });
+
+  it("transpose intercambia filas y columnas", () => {
+    const t = tensor([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    expect(t.transpose().toArray()).toEqual([
+      [1, 4],
+      [2, 5],
+      [3, 6],
+    ]);
+  });
+
+  it("slice y row son vistas", () => {
+    const t = tensor([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ]);
+    expect(t.slice(1, 3).toArray()).toEqual([
+      [2, 2],
+      [3, 3],
+    ]);
+    expect(t.row(0).toArray()).toEqual([[1, 1]]);
+    expect(t.at(2, 1)).toBe(3);
+  });
 });

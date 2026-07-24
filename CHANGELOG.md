@@ -6,6 +6,17 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-23
+### Added
+- **Nuevas activaciones**: `leakyrelu`, `elu`, `gelu` (aprox. sigmoide).
+- **Nuevas losses**: `mae` (L1) y `huber` (smooth L1).
+- **Tensor views**: `reshape` (comparte buffer, admite `-1`), `transpose`,
+  `slice` y `row` (vistas), y `at(i, j)`.
+- Tests (Rust y TS) para las nuevas activaciones, losses y vistas.
+### Notes
+- Con esto la **Fase 1** queda completa salvo el sistema de múltiples dtypes
+  (el motor es f32 a propósito, el estándar en ML).
+
 ## [0.5.0] - 2026-07-11
 ### Added
 - **Validación durante el entrenamiento**: `model.fit(x, y, opts, { x, y })`

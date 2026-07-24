@@ -12,6 +12,9 @@ pub enum Activation {
     Sigmoid,
     Tanh,
     Softmax,
+    LeakyRelu,
+    Elu,
+    Gelu,
 }
 
 impl Activation {
@@ -22,6 +25,9 @@ impl Activation {
             "sigmoid" => Activation::Sigmoid,
             "tanh" => Activation::Tanh,
             "softmax" => Activation::Softmax,
+            "leakyrelu" | "leaky_relu" | "leaky" => Activation::LeakyRelu,
+            "elu" => Activation::Elu,
+            "gelu" => Activation::Gelu,
             _ => Activation::Linear,
         }
     }
@@ -33,6 +39,9 @@ impl Activation {
             Activation::Sigmoid => "sigmoid",
             Activation::Tanh => "tanh",
             Activation::Softmax => "softmax",
+            Activation::LeakyRelu => "leakyrelu",
+            Activation::Elu => "elu",
+            Activation::Gelu => "gelu",
         }
     }
 }
@@ -43,6 +52,8 @@ pub enum Loss {
     Mse,
     Bce,
     Cce,
+    Mae,
+    Huber,
 }
 
 impl Loss {
@@ -51,6 +62,8 @@ impl Loss {
         match s.to_lowercase().as_str() {
             "bce" | "binary_crossentropy" => Loss::Bce,
             "cce" | "categorical_crossentropy" | "crossentropy" => Loss::Cce,
+            "mae" | "l1" => Loss::Mae,
+            "huber" | "smooth_l1" => Loss::Huber,
             _ => Loss::Mse,
         }
     }
@@ -283,6 +296,9 @@ impl Model {
                 Activation::Sigmoid => tape.sigmoid(z),
                 Activation::Tanh => tape.tanh(z),
                 Activation::Softmax => tape.softmax(z),
+                Activation::LeakyRelu => tape.leaky_relu(z),
+                Activation::Elu => tape.elu(z),
+                Activation::Gelu => tape.gelu(z),
             };
             params.push((wid, bid));
         }
@@ -307,6 +323,8 @@ impl Model {
             Loss::Mse => tape.mse(out, yid),
             Loss::Bce => tape.bce(out, yid),
             Loss::Cce => tape.cce(out, yid),
+            Loss::Mae => tape.mae(out, yid),
+            Loss::Huber => tape.huber(out, yid),
         };
         let loss_val = tape.value(loss)[[0, 0]];
 
@@ -351,6 +369,8 @@ impl Model {
             Loss::Mse => tape.mse(out, yid),
             Loss::Bce => tape.bce(out, yid),
             Loss::Cce => tape.cce(out, yid),
+            Loss::Mae => tape.mae(out, yid),
+            Loss::Huber => tape.huber(out, yid),
         };
         tape.value(l)[[0, 0]]
     }
@@ -702,6 +722,63 @@ mod tests {
             (now - res.best_loss).abs() < 1e-5,
             "loss actual {now} != best {}",
             res.best_loss
+        );
+    }
+
+    #[test]
+    fn nuevas_activaciones_y_parsers() {
+        assert!(matches!(
+            Activation::from_str("leakyrelu"),
+            Activation::LeakyRelu
+        ));
+        assert!(matches!(Activation::from_str("elu"), Activation::Elu));
+        assert!(matches!(Activation::from_str("gelu"), Activation::Gelu));
+        assert!(matches!(Loss::from_str("mae"), Loss::Mae));
+        assert!(matches!(Loss::from_str("huber"), Loss::Huber));
+
+        // round-trip as_str/from_str
+        for a in [Activation::LeakyRelu, Activation::Elu, Activation::Gelu] {
+            assert!(matches!(
+                Activation::from_str(a.as_str()),
+                x if std::mem::discriminant(&x) == std::mem::discriminant(&a)
+            ));
+        }
+    }
+
+    #[test]
+    fn learns_xor_gelu_huber() {
+        let mut rng = Rng::new(13);
+        let (x, y) = xor_data();
+        let mut model = Model::new(vec![
+            Dense::new(2, 8, Activation::Gelu, &mut rng),
+            Dense::new(8, 1, Activation::Sigmoid, &mut rng),
+        ]);
+        let mut cfg = TrainConfig::adam(3000, 0.03);
+        cfg.loss = Loss::Huber;
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            hist.last().unwrap() < hist.first().unwrap(),
+            "Huber no bajó"
+        );
+        assert_xor(&model, &x);
+    }
+
+    #[test]
+    fn mae_baja_con_leakyrelu() {
+        let mut rng = Rng::new(4);
+        let x = array![[0.0], [1.0], [2.0], [3.0]];
+        let y = array![[0.0], [2.0], [4.0], [6.0]]; // y = 2x
+        let mut model = Model::new(vec![
+            Dense::new(1, 8, Activation::LeakyRelu, &mut rng),
+            Dense::new(8, 1, Activation::Linear, &mut rng),
+        ]);
+        let mut cfg = TrainConfig::adam(2000, 0.02);
+        cfg.loss = Loss::Mae;
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            *hist.last().unwrap() < 0.3,
+            "MAE final: {}",
+            hist.last().unwrap()
         );
     }
 }
