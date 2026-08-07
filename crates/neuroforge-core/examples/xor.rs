@@ -2,7 +2,7 @@
 //! Ahora con Adam + BCE. Si converge, el autograd + optimizador están bien.
 
 use ndarray::array;
-use neuroforge_core::{Activation, Dense, Loss, Model, Optimizer, Rng, TrainConfig};
+use neuroforge_core::{Activation, Layer, Loss, Model, Optimizer, Rng, TrainConfig};
 
 fn main() {
     let mut rng = Rng::new(7);
@@ -11,8 +11,8 @@ fn main() {
     let y = array![[0.0], [1.0], [1.0], [0.0]];
 
     let mut model = Model::new(vec![
-        Dense::new(2, 8, Activation::Tanh, &mut rng),
-        Dense::new(8, 1, Activation::Sigmoid, &mut rng),
+        Layer::dense(2, 8, Activation::Tanh, &mut rng),
+        Layer::dense(8, 1, Activation::Sigmoid, &mut rng),
     ]);
 
     let cfg = TrainConfig {

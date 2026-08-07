@@ -4,7 +4,13 @@
 // Esta capa solo ofrece ergonomía: tensores, capas y modelo.
 
 export { Tensor, tensor } from "./tensor.js";
-export { dense, type ActivationName, type LayerSpec } from "./layers.js";
+export {
+  dense,
+  dropout,
+  layerNorm,
+  type ActivationName,
+  type LayerSpec,
+} from "./layers.js";
 export { TensorDataset, DataLoader, type Batch } from "./data.js";
 export {
   Model,
@@ -18,8 +24,8 @@ export {
 } from "./model.js";
 
 import { DataLoader, TensorDataset } from "./data.js";
-import { dense } from "./layers.js";
+import { dense, dropout, layerNorm } from "./layers.js";
 import { Model } from "./model.js";
 import { Tensor, tensor } from "./tensor.js";
 
-export default { tensor, dense, Model, Tensor, TensorDataset, DataLoader };
+export default { tensor, dense, dropout, layerNorm, Model, Tensor, TensorDataset, DataLoader };

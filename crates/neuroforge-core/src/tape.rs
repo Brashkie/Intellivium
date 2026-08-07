@@ -5,6 +5,8 @@
 
 use ndarray::{Array2, Axis};
 
+use crate::rng::Rng;
+
 #[derive(Clone)]
 enum Op {
     Leaf,
@@ -13,15 +15,17 @@ enum Op {
     Relu(usize),
     Sigmoid(usize),
     Tanh(usize),
-    Softmax(usize),      // softmax por filas (row-wise)
-    LeakyRelu(usize),    // x>0 ? x : 0.01x
-    Elu(usize),          // x>0 ? x : e^x - 1
-    Gelu(usize),         // x * sigmoid(1.702x) (aprox.)
-    Mse(usize, usize),   // pred, target -> escalar (1,1)
-    Bce(usize, usize),   // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
-    Cce(usize, usize),   // categorical cross-entropy (pred=softmax, target=one-hot)
-    Mae(usize, usize),   // mean absolute error (L1)
-    Huber(usize, usize), // Huber loss (delta=1.0)
+    Softmax(usize),                      // softmax por filas (row-wise)
+    LeakyRelu(usize),                    // x>0 ? x : 0.01x
+    Elu(usize),                          // x>0 ? x : e^x - 1
+    Gelu(usize),                         // x * sigmoid(1.702x) (aprox.)
+    Mse(usize, usize),                   // pred, target -> escalar (1,1)
+    Bce(usize, usize),                   // binary cross-entropy (pred en [0,1]) -> escalar (1,1)
+    Cce(usize, usize),                   // categorical cross-entropy (pred=softmax, target=one-hot)
+    Mae(usize, usize),                   // mean absolute error (L1)
+    Huber(usize, usize),                 // Huber loss (delta=1.0)
+    Dropout(usize),                      // input (la máscara se guarda en Tape.masks)
+    LayerNorm(usize, usize, usize, f32), // input, gamma, beta, eps
 }
 
 const EPS: f32 = 1e-7;
@@ -38,6 +42,7 @@ fn sigmoid(x: f32) -> f32 {
 pub struct Tape {
     values: Vec<Array2<f32>>,
     ops: Vec<Op>,
+    masks: std::collections::HashMap<usize, Array2<f32>>,
 }
 
 impl Default for Tape {
@@ -51,6 +56,7 @@ impl Tape {
         Tape {
             values: Vec::new(),
             ops: Vec::new(),
+            masks: std::collections::HashMap::new(),
         }
     }
 
@@ -205,6 +211,44 @@ impl Tape {
         self.push(Array2::from_elem((1, 1), loss), Op::Huber(pred, target))
     }
 
+    /// Inverted dropout: escala por 1/(1-p) las unidades que sobreviven.
+    /// La máscara se guarda para el backward. Solo debe usarse en training.
+    pub fn dropout(&mut self, a: usize, p: f32, rng: &mut Rng) -> usize {
+        let keep = 1.0 - p;
+        let scale = if keep > 0.0 { 1.0 / keep } else { 0.0 };
+        let mask = self.values[a].mapv(|_| if rng.uniform() < keep { scale } else { 0.0 });
+        let y = &self.values[a] * &mask;
+        let id = self.push(y, Op::Dropout(a));
+        self.masks.insert(id, mask);
+        id
+    }
+
+    /// Layer Normalization por filas: y = gamma * (x-mean)/sqrt(var+eps) + beta.
+    pub fn layer_norm(&mut self, a: usize, gamma: usize, beta: usize, eps: f32) -> usize {
+        let (rows, cols) = (self.values[a].nrows(), self.values[a].ncols());
+        let cf = cols as f32;
+        let mut out = Array2::<f32>::zeros((rows, cols));
+        for r in 0..rows {
+            let mut mean = 0.0;
+            for c in 0..cols {
+                mean += self.values[a][[r, c]];
+            }
+            mean /= cf;
+            let mut var = 0.0;
+            for c in 0..cols {
+                let d = self.values[a][[r, c]] - mean;
+                var += d * d;
+            }
+            var /= cf;
+            let std = (var + eps).sqrt();
+            for c in 0..cols {
+                let xhat = (self.values[a][[r, c]] - mean) / std;
+                out[[r, c]] = self.values[gamma][[0, c]] * xhat + self.values[beta][[0, c]];
+            }
+        }
+        self.push(out, Op::LayerNorm(a, gamma, beta, eps))
+    }
+
     /// Backprop desde `out` (típicamente la loss escalar). Devuelve el gradiente
     /// de CADA nodo de la cinta, indexado por su id.
     pub fn backward(&self, out: usize) -> Vec<Array2<f32>> {
@@ -338,6 +382,54 @@ impl Tape {
                         g / n * gv
                     });
                     grads[p] = &grads[p] + &dp;
+                }
+                Op::Dropout(a) => {
+                    let mask = self.masks.get(&i).expect("dropout mask");
+                    grads[a] = &grads[a] + &(&g * mask);
+                }
+                Op::LayerNorm(a, gamma, beta, eps) => {
+                    let (rows, cols) = (self.values[a].nrows(), self.values[a].ncols());
+                    let cf = cols as f32;
+                    let mut dx = Array2::<f32>::zeros((rows, cols));
+                    let mut dgamma = Array2::<f32>::zeros((1, cols));
+                    let mut dbeta = Array2::<f32>::zeros((1, cols));
+                    for r in 0..rows {
+                        let mut mean = 0.0;
+                        for c in 0..cols {
+                            mean += self.values[a][[r, c]];
+                        }
+                        mean /= cf;
+                        let mut var = 0.0;
+                        for c in 0..cols {
+                            let d = self.values[a][[r, c]] - mean;
+                            var += d * d;
+                        }
+                        var /= cf;
+                        let std = (var + eps).sqrt();
+
+                        let mut xhat = vec![0.0f32; cols];
+                        let mut dxhat = vec![0.0f32; cols];
+                        let mut mean_dxhat = 0.0;
+                        let mut mean_dxhat_xhat = 0.0;
+                        for c in 0..cols {
+                            let xh = (self.values[a][[r, c]] - mean) / std;
+                            let dh = g[[r, c]] * self.values[gamma][[0, c]];
+                            xhat[c] = xh;
+                            dxhat[c] = dh;
+                            mean_dxhat += dh;
+                            mean_dxhat_xhat += dh * xh;
+                            dgamma[[0, c]] += g[[r, c]] * xh;
+                            dbeta[[0, c]] += g[[r, c]];
+                        }
+                        mean_dxhat /= cf;
+                        mean_dxhat_xhat /= cf;
+                        for c in 0..cols {
+                            dx[[r, c]] = (dxhat[c] - mean_dxhat - xhat[c] * mean_dxhat_xhat) / std;
+                        }
+                    }
+                    grads[a] = &grads[a] + &dx;
+                    grads[gamma] = &grads[gamma] + &dgamma;
+                    grads[beta] = &grads[beta] + &dbeta;
                 }
             }
         }

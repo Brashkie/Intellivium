@@ -6,6 +6,21 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-25
+### Added
+- **Fase 3 — comienzo de la biblioteca neural.** El modelo pasa de una lista de
+  capas densas a un sistema de capas (`Layer`), habilitando capas sin pesos y de
+  normalización dentro del `Sequential`.
+- **Dropout** (`dropout(p)`): inverted dropout, activo solo en entrenamiento;
+  en `predict`/`evaluate` es identidad.
+- **LayerNorm** (`layerNorm(features)`): normalización por muestra con gamma/beta
+  entrenables (backward vectorizado, media~0 y var~1 por fila).
+- `save`/`load` ahora serializan el tipo de capa (`kind`) y sus parámetros.
+- Tests (Rust y TS) de Dropout y LayerNorm.
+### Changed
+- API interno del núcleo: `Model` contiene `Vec<Layer>` en vez de `Vec<Dense>`.
+  El API público de TS es compatible (dense/dropout/layerNorm).
+
 ## [0.6.0] - 2026-07-23
 ### Added
 - **Nuevas activaciones**: `leakyrelu`, `elu`, `gelu` (aprox. sigmoide).

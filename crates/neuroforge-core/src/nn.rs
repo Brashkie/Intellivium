@@ -190,7 +190,6 @@ pub struct Dense {
     pub w: Array2<f32>, // (in, out)
     pub b: Array2<f32>, // (1, out)
     pub act: Activation,
-    // Estado de Adam (sin uso con SGD).
     mw: Array2<f32>,
     vw: Array2<f32>,
     mb: Array2<f32>,
@@ -199,7 +198,6 @@ pub struct Dense {
 
 impl Dense {
     pub fn new(inp: usize, out: usize, act: Activation, rng: &mut Rng) -> Self {
-        // Inicialización He (buena para relu, decente en general).
         let scale = (2.0 / inp as f32).sqrt();
         let w = Array2::from_shape_fn((inp, out), |_| rng.normal() * scale);
         Dense {
@@ -212,56 +210,117 @@ impl Dense {
             vb: Array2::zeros((1, out)),
         }
     }
+}
 
+/// Normalización por muestra (Layer Normalization) sobre las columnas.
+pub struct LayerNorm {
+    pub gamma: Array2<f32>, // (1, features)
+    pub beta: Array2<f32>,  // (1, features)
+    pub eps: f32,
+    mg: Array2<f32>,
+    vg: Array2<f32>,
+    mb: Array2<f32>,
+    vb: Array2<f32>,
+}
+
+impl LayerNorm {
+    pub fn new(features: usize) -> Self {
+        LayerNorm {
+            gamma: Array2::ones((1, features)),
+            beta: Array2::zeros((1, features)),
+            eps: 1e-5,
+            mg: Array2::zeros((1, features)),
+            vg: Array2::zeros((1, features)),
+            mb: Array2::zeros((1, features)),
+            vb: Array2::zeros((1, features)),
+        }
+    }
+}
+
+/// Una capa del modelo secuencial.
+pub enum Layer {
+    Dense(Dense),
+    /// Dropout con probabilidad p (inverted dropout; activo solo en training).
+    Dropout(f32),
+    LayerNorm(LayerNorm),
+}
+
+impl Layer {
+    pub fn dense(inp: usize, out: usize, act: Activation, rng: &mut Rng) -> Layer {
+        Layer::Dense(Dense::new(inp, out, act, rng))
+    }
+    pub fn dropout(p: f32) -> Layer {
+        Layer::Dropout(p)
+    }
+    pub fn layer_norm(features: usize) -> Layer {
+        Layer::LayerNorm(LayerNorm::new(features))
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Layer::Dense(_) => "dense",
+            Layer::Dropout(_) => "dropout",
+            Layer::LayerNorm(_) => "layernorm",
+        }
+    }
+
+    /// Aplica los gradientes a los parámetros de la capa. `ids` son los índices
+    /// de la cinta de los parámetros en el orden en que se registraron.
     fn apply_grads(
         &mut self,
-        gw: &Array2<f32>,
-        gb: &Array2<f32>,
+        ids: &[usize],
+        grads: &[Array2<f32>],
         opt: &Optimizer,
         lr: f32,
         t: i32,
+        scale: f32,
     ) {
-        match *opt {
-            Optimizer::Sgd => {
-                self.w = &self.w - &(gw * lr);
-                self.b = &self.b - &(gb * lr);
+        match self {
+            Layer::Dense(d) => {
+                let gw = &grads[ids[0]] * scale;
+                let gb = &grads[ids[1]] * scale;
+                apply_param(&mut d.w, &mut d.mw, &mut d.vw, &gw, opt, lr, t);
+                apply_param(&mut d.b, &mut d.mb, &mut d.vb, &gb, opt, lr, t);
             }
-            Optimizer::Adam { beta1, beta2, eps } => {
-                adam_step(
-                    &mut self.w,
-                    &mut self.mw,
-                    &mut self.vw,
-                    gw,
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    t,
-                );
-                adam_step(
-                    &mut self.b,
-                    &mut self.mb,
-                    &mut self.vb,
-                    gb,
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    t,
-                );
+            Layer::Dropout(_) => {}
+            Layer::LayerNorm(ln) => {
+                let gg = &grads[ids[0]] * scale;
+                let gb = &grads[ids[1]] * scale;
+                apply_param(&mut ln.gamma, &mut ln.mg, &mut ln.vg, &gg, opt, lr, t);
+                apply_param(&mut ln.beta, &mut ln.mb, &mut ln.vb, &gb, opt, lr, t);
             }
         }
     }
 }
 
+/// Actualiza un parámetro con SGD o Adam.
+fn apply_param(
+    p: &mut Array2<f32>,
+    m: &mut Array2<f32>,
+    v: &mut Array2<f32>,
+    g: &Array2<f32>,
+    opt: &Optimizer,
+    lr: f32,
+    t: i32,
+) {
+    match *opt {
+        Optimizer::Sgd => {
+            *p = &*p - &(g * lr);
+        }
+        Optimizer::Adam { beta1, beta2, eps } => {
+            adam_step(p, m, v, g, lr, beta1, beta2, eps, t);
+        }
+    }
+}
+
 pub struct Model {
-    pub layers: Vec<Dense>,
-    t: i32,   // timestep de Adam
-    rng: Rng, // para barajar los mini-batches
+    pub layers: Vec<Layer>,
+    t: i32,
+    rng: Rng,
 }
 
 impl Model {
-    pub fn new(layers: Vec<Dense>) -> Self {
+    pub fn new(layers: Vec<Layer>) -> Self {
         Model {
             layers,
             t: 0,
@@ -269,38 +328,100 @@ impl Model {
         }
     }
 
-    /// Reemplaza los pesos de una capa (para load). Resetea el estado de Adam.
-    pub fn set_weights(&mut self, i: usize, w: Array2<f32>, b: Array2<f32>) {
-        let l = &mut self.layers[i];
-        l.mw = Array2::zeros(w.raw_dim());
-        l.vw = Array2::zeros(w.raw_dim());
-        l.mb = Array2::zeros(b.raw_dim());
-        l.vb = Array2::zeros(b.raw_dim());
-        l.w = w;
-        l.b = b;
+    pub fn layer_count(&self) -> usize {
+        self.layers.len()
     }
 
-    /// Construye el grafo forward sobre la cinta y devuelve:
-    /// (id_salida, [(id_W, id_b) por capa]) para leer gradientes luego.
-    fn forward_tape(&self, tape: &mut Tape, x: usize) -> (usize, Vec<(usize, usize)>) {
+    pub fn dense_at(&self, i: usize) -> Option<&Dense> {
+        match &self.layers[i] {
+            Layer::Dense(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn layernorm_at(&self, i: usize) -> Option<&LayerNorm> {
+        match &self.layers[i] {
+            Layer::LayerNorm(ln) => Some(ln),
+            _ => None,
+        }
+    }
+
+    pub fn dropout_p(&self, i: usize) -> Option<f32> {
+        match &self.layers[i] {
+            Layer::Dropout(p) => Some(*p),
+            _ => None,
+        }
+    }
+
+    /// Reemplaza W y b de una capa densa (para load).
+    pub fn set_dense_weights(&mut self, i: usize, w: Array2<f32>, b: Array2<f32>) {
+        if let Layer::Dense(d) = &mut self.layers[i] {
+            d.mw = Array2::zeros(w.raw_dim());
+            d.vw = Array2::zeros(w.raw_dim());
+            d.mb = Array2::zeros(b.raw_dim());
+            d.vb = Array2::zeros(b.raw_dim());
+            d.w = w;
+            d.b = b;
+        }
+    }
+
+    /// Reemplaza gamma y beta de una capa LayerNorm (para load).
+    pub fn set_layernorm_weights(&mut self, i: usize, gamma: Array2<f32>, beta: Array2<f32>) {
+        if let Layer::LayerNorm(ln) = &mut self.layers[i] {
+            ln.mg = Array2::zeros(gamma.raw_dim());
+            ln.vg = Array2::zeros(gamma.raw_dim());
+            ln.mb = Array2::zeros(beta.raw_dim());
+            ln.vb = Array2::zeros(beta.raw_dim());
+            ln.gamma = gamma;
+            ln.beta = beta;
+        }
+    }
+
+    /// Construye el grafo forward. `training` activa Dropout. Devuelve la salida
+    /// y, por capa, los ids de sus parámetros en la cinta.
+    fn forward_tape(
+        &self,
+        tape: &mut Tape,
+        x: usize,
+        training: bool,
+        mut rng: Option<&mut Rng>,
+    ) -> (usize, Vec<Vec<usize>>) {
         let mut cur = x;
-        let mut params = Vec::with_capacity(self.layers.len());
+        let mut params: Vec<Vec<usize>> = Vec::with_capacity(self.layers.len());
         for layer in &self.layers {
-            let wid = tape.leaf(layer.w.clone());
-            let bid = tape.leaf(layer.b.clone());
-            let z = tape.matmul(cur, wid);
-            let z = tape.add(z, bid);
-            cur = match layer.act {
-                Activation::Linear => z,
-                Activation::Relu => tape.relu(z),
-                Activation::Sigmoid => tape.sigmoid(z),
-                Activation::Tanh => tape.tanh(z),
-                Activation::Softmax => tape.softmax(z),
-                Activation::LeakyRelu => tape.leaky_relu(z),
-                Activation::Elu => tape.elu(z),
-                Activation::Gelu => tape.gelu(z),
-            };
-            params.push((wid, bid));
+            match layer {
+                Layer::Dense(d) => {
+                    let wid = tape.leaf(d.w.clone());
+                    let bid = tape.leaf(d.b.clone());
+                    let z = tape.matmul(cur, wid);
+                    let z = tape.add(z, bid);
+                    cur = match d.act {
+                        Activation::Linear => z,
+                        Activation::Relu => tape.relu(z),
+                        Activation::Sigmoid => tape.sigmoid(z),
+                        Activation::Tanh => tape.tanh(z),
+                        Activation::Softmax => tape.softmax(z),
+                        Activation::LeakyRelu => tape.leaky_relu(z),
+                        Activation::Elu => tape.elu(z),
+                        Activation::Gelu => tape.gelu(z),
+                    };
+                    params.push(vec![wid, bid]);
+                }
+                Layer::Dropout(p) => {
+                    if training && *p > 0.0 {
+                        if let Some(r) = rng.as_deref_mut() {
+                            cur = tape.dropout(cur, *p, r);
+                        }
+                    }
+                    params.push(vec![]);
+                }
+                Layer::LayerNorm(ln) => {
+                    let gid = tape.leaf(ln.gamma.clone());
+                    let bid = tape.leaf(ln.beta.clone());
+                    cur = tape.layer_norm(cur, gid, bid, ln.eps);
+                    params.push(vec![gid, bid]);
+                }
+            }
         }
         (cur, params)
     }
@@ -308,86 +429,93 @@ impl Model {
     pub fn predict(&self, x: &Array2<f32>) -> Array2<f32> {
         let mut tape = Tape::new();
         let xid = tape.leaf(x.clone());
-        let (out, _) = self.forward_tape(&mut tape, xid);
+        let (out, _) = self.forward_tape(&mut tape, xid, false, None);
         tape.value(out).clone()
     }
 
-    /// Un paso de entrenamiento sobre un batch: forward, backward y update.
-    /// Aplica clipping por norma global si `cfg.grad_clip > 0`. Devuelve la loss.
+    fn build_loss(tape: &mut Tape, loss: Loss, out: usize, yid: usize) -> usize {
+        match loss {
+            Loss::Mse => tape.mse(out, yid),
+            Loss::Bce => tape.bce(out, yid),
+            Loss::Cce => tape.cce(out, yid),
+            Loss::Mae => tape.mae(out, yid),
+            Loss::Huber => tape.huber(out, yid),
+        }
+    }
+
+    /// Un paso de entrenamiento sobre un batch. Aplica clipping global si procede.
     fn step(&mut self, xb: &Array2<f32>, yb: &Array2<f32>, cfg: &TrainConfig, lr: f32) -> f32 {
         let mut tape = Tape::new();
         let xid = tape.leaf(xb.clone());
         let yid = tape.leaf(yb.clone());
-        let (out, params) = self.forward_tape(&mut tape, xid);
-        let loss = match cfg.loss {
-            Loss::Mse => tape.mse(out, yid),
-            Loss::Bce => tape.bce(out, yid),
-            Loss::Cce => tape.cce(out, yid),
-            Loss::Mae => tape.mae(out, yid),
-            Loss::Huber => tape.huber(out, yid),
-        };
+
+        let mut rng = std::mem::replace(&mut self.rng, Rng::new(1));
+        let (out, param_ids) = self.forward_tape(&mut tape, xid, true, Some(&mut rng));
+        self.rng = rng;
+
+        let loss = Self::build_loss(&mut tape, cfg.loss, out, yid);
         let loss_val = tape.value(loss)[[0, 0]];
-
         let grads = tape.backward(loss);
-        // Recoge los gradientes de los parámetros (W, b) por capa.
-        let mut pgrads: Vec<(Array2<f32>, Array2<f32>)> = params
-            .iter()
-            .map(|(wid, bid)| (grads[*wid].clone(), grads[*bid].clone()))
-            .collect();
 
-        // Gradient clipping por norma L2 global.
+        // Clipping por norma L2 global sobre todos los parámetros.
+        let mut scale = 1.0f32;
         if cfg.grad_clip > 0.0 {
             let mut sq = 0.0f32;
-            for (gw, gb) in &pgrads {
-                sq += gw.iter().map(|&v| v * v).sum::<f32>();
-                sq += gb.iter().map(|&v| v * v).sum::<f32>();
+            for ids in &param_ids {
+                for &id in ids {
+                    sq += grads[id].iter().map(|&v| v * v).sum::<f32>();
+                }
             }
             let norm = sq.sqrt();
             if norm > cfg.grad_clip {
-                let scale = cfg.grad_clip / (norm + 1e-12);
-                for (gw, gb) in &mut pgrads {
-                    gw.mapv_inplace(|v| v * scale);
-                    gb.mapv_inplace(|v| v * scale);
-                }
+                scale = cfg.grad_clip / (norm + 1e-12);
             }
         }
 
         self.t += 1;
-        for (li, (gw, gb)) in pgrads.iter().enumerate() {
-            self.layers[li].apply_grads(gw, gb, &cfg.optimizer, lr, self.t);
+        for (li, ids) in param_ids.iter().enumerate() {
+            if !ids.is_empty() {
+                self.layers[li].apply_grads(ids, &grads, &cfg.optimizer, lr, self.t, scale);
+            }
         }
         loss_val
     }
 
-    /// Calcula la loss sobre un conjunto sin actualizar pesos.
+    /// Calcula la loss sobre un conjunto sin actualizar pesos (modo eval).
     pub fn evaluate(&self, x: &Array2<f32>, y: &Array2<f32>, loss: Loss) -> f32 {
         let mut tape = Tape::new();
         let xid = tape.leaf(x.clone());
         let yid = tape.leaf(y.clone());
-        let (out, _) = self.forward_tape(&mut tape, xid);
-        let l = match loss {
-            Loss::Mse => tape.mse(out, yid),
-            Loss::Bce => tape.bce(out, yid),
-            Loss::Cce => tape.cce(out, yid),
-            Loss::Mae => tape.mae(out, yid),
-            Loss::Huber => tape.huber(out, yid),
-        };
+        let (out, _) = self.forward_tape(&mut tape, xid, false, None);
+        let l = Self::build_loss(&mut tape, loss, out, yid);
         tape.value(l)[[0, 0]]
     }
 
-    /// Copia los pesos actuales (checkpoint en memoria).
-    fn snapshot(&self) -> Vec<(Array2<f32>, Array2<f32>)> {
+    /// Copia todos los parámetros entrenables (checkpoint en memoria).
+    fn snapshot(&self) -> Vec<Vec<Array2<f32>>> {
         self.layers
             .iter()
-            .map(|l| (l.w.clone(), l.b.clone()))
+            .map(|l| match l {
+                Layer::Dense(d) => vec![d.w.clone(), d.b.clone()],
+                Layer::Dropout(_) => vec![],
+                Layer::LayerNorm(ln) => vec![ln.gamma.clone(), ln.beta.clone()],
+            })
             .collect()
     }
 
-    /// Restaura pesos desde un snapshot.
-    fn restore(&mut self, snap: Vec<(Array2<f32>, Array2<f32>)>) {
-        for (i, (w, b)) in snap.into_iter().enumerate() {
-            self.layers[i].w = w;
-            self.layers[i].b = b;
+    fn restore(&mut self, snap: Vec<Vec<Array2<f32>>>) {
+        for (i, params) in snap.into_iter().enumerate() {
+            match &mut self.layers[i] {
+                Layer::Dense(d) => {
+                    d.w = params[0].clone();
+                    d.b = params[1].clone();
+                }
+                Layer::Dropout(_) => {}
+                Layer::LayerNorm(ln) => {
+                    ln.gamma = params[0].clone();
+                    ln.beta = params[1].clone();
+                }
+            }
         }
     }
 
@@ -413,7 +541,7 @@ impl Model {
 
         let mut best_loss = f32::INFINITY;
         let mut best_epoch = 0usize;
-        let mut best_snap: Option<Vec<(Array2<f32>, Array2<f32>)>> = None;
+        let mut best_snap: Option<Vec<Vec<Array2<f32>>>> = None;
         let mut since_improve = 0usize;
         let mut stopped_early = false;
 
@@ -441,7 +569,6 @@ impl Model {
             let train_loss = epoch_loss / n as f32;
             history.push(train_loss);
 
-            // Criterio de mejora: val loss si hay validación, si no train loss.
             let monitor = match val {
                 Some((vx, vy)) => {
                     let vl = self.evaluate(vx, vy, cfg.loss);
@@ -482,8 +609,7 @@ impl Model {
         }
     }
 
-    /// Entrena según `cfg`. Con `batch_size > 0` usa mini-batches barajados por
-    /// época; con 0 usa el batch completo. Devuelve la loss media por época.
+    /// Entrena según `cfg`. Devuelve la loss media por época.
     pub fn train(&mut self, x: &Array2<f32>, y: &Array2<f32>, cfg: &TrainConfig) -> Vec<f32> {
         self.train_with_validation(x, y, None, cfg).history
     }
@@ -503,8 +629,8 @@ mod tests {
 
     fn xor_model(rng: &mut Rng) -> Model {
         Model::new(vec![
-            Dense::new(2, 8, Activation::Tanh, rng),
-            Dense::new(8, 1, Activation::Sigmoid, rng),
+            Layer::dense(2, 8, Activation::Tanh, rng),
+            Layer::dense(8, 1, Activation::Sigmoid, rng),
         ])
     }
 
@@ -607,8 +733,9 @@ mod tests {
         // Clonar pesos a un modelo nuevo (misma arquitectura, init distinto).
         let mut rng2 = Rng::new(999);
         let mut restored = xor_model(&mut rng2);
-        for i in 0..trained.layers.len() {
-            restored.set_weights(i, trained.layers[i].w.clone(), trained.layers[i].b.clone());
+        for i in 0..trained.layer_count() {
+            let d = trained.dense_at(i).unwrap();
+            restored.set_dense_weights(i, d.w.clone(), d.b.clone());
         }
         let after = restored.predict(&x);
 
@@ -633,8 +760,8 @@ mod tests {
             [0.0, 0.0, 1.0],
         ];
         let mut model = Model::new(vec![
-            Dense::new(2, 12, Activation::Relu, &mut rng),
-            Dense::new(12, 3, Activation::Softmax, &mut rng),
+            Layer::dense(2, 12, Activation::Relu, &mut rng),
+            Layer::dense(12, 3, Activation::Softmax, &mut rng),
         ]);
         let cfg = TrainConfig {
             epochs: 2000,
@@ -750,8 +877,8 @@ mod tests {
         let mut rng = Rng::new(13);
         let (x, y) = xor_data();
         let mut model = Model::new(vec![
-            Dense::new(2, 8, Activation::Gelu, &mut rng),
-            Dense::new(8, 1, Activation::Sigmoid, &mut rng),
+            Layer::dense(2, 8, Activation::Gelu, &mut rng),
+            Layer::dense(8, 1, Activation::Sigmoid, &mut rng),
         ]);
         let mut cfg = TrainConfig::adam(3000, 0.03);
         cfg.loss = Loss::Huber;
@@ -769,8 +896,8 @@ mod tests {
         let x = array![[0.0], [1.0], [2.0], [3.0]];
         let y = array![[0.0], [2.0], [4.0], [6.0]]; // y = 2x
         let mut model = Model::new(vec![
-            Dense::new(1, 8, Activation::LeakyRelu, &mut rng),
-            Dense::new(8, 1, Activation::Linear, &mut rng),
+            Layer::dense(1, 8, Activation::LeakyRelu, &mut rng),
+            Layer::dense(8, 1, Activation::Linear, &mut rng),
         ]);
         let mut cfg = TrainConfig::adam(2000, 0.02);
         cfg.loss = Loss::Mae;
@@ -779,6 +906,61 @@ mod tests {
             *hist.last().unwrap() < 0.3,
             "MAE final: {}",
             hist.last().unwrap()
+        );
+    }
+
+    #[test]
+    fn dropout_es_identidad_en_eval() {
+        let mut rng = Rng::new(2);
+        let mut model = Model::new(vec![
+            Layer::dense(2, 6, Activation::Relu, &mut rng),
+            Layer::dropout(0.5),
+            Layer::dense(6, 1, Activation::Linear, &mut rng),
+        ]);
+        let (x, _) = xor_data();
+        let a = model.predict(&x);
+        let b = model.predict(&x);
+        for r in 0..a.nrows() {
+            assert!((a[[r, 0]] - b[[r, 0]]).abs() < 1e-6);
+        }
+        let mut cfg = TrainConfig::adam(300, 0.05);
+        cfg.loss = Loss::Mse;
+        let y = array![[0.0], [1.0], [1.0], [0.0]];
+        let hist = model.train(&x, &y, &cfg);
+        assert!(hist.last().unwrap().is_finite());
+    }
+
+    #[test]
+    fn layernorm_normaliza_y_entrena() {
+        let mut rng = Rng::new(8);
+        let ln_only = Model::new(vec![
+            Layer::dense(3, 4, Activation::Linear, &mut rng),
+            Layer::layer_norm(4),
+        ]);
+        let x = array![[1.0, 2.0, 3.0], [-1.0, 0.5, 2.0]];
+        let out = ln_only.predict(&x);
+        for r in 0..out.nrows() {
+            let mean: f32 = (0..out.ncols()).map(|c| out[[r, c]]).sum::<f32>() / out.ncols() as f32;
+            let var: f32 = (0..out.ncols())
+                .map(|c| (out[[r, c]] - mean).powi(2))
+                .sum::<f32>()
+                / out.ncols() as f32;
+            assert!(mean.abs() < 1e-3, "media fila {r} = {mean}");
+            assert!((var - 1.0).abs() < 1e-2, "var fila {r} = {var}");
+        }
+
+        let mut m2 = Model::new(vec![
+            Layer::dense(2, 8, Activation::Relu, &mut rng),
+            Layer::layer_norm(8),
+            Layer::dense(8, 1, Activation::Sigmoid, &mut rng),
+        ]);
+        let (xx, yy) = xor_data();
+        let mut cfg = TrainConfig::adam(3000, 0.03);
+        cfg.loss = Loss::Bce;
+        let hist = m2.train(&xx, &yy, &cfg);
+        assert!(
+            hist.last().unwrap() < hist.first().unwrap(),
+            "LayerNorm no bajó la loss"
         );
     }
 }

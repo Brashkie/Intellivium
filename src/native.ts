@@ -4,9 +4,12 @@
 import { createRequire } from "node:module";
 
 export interface NativeLayerSpec {
-  inputDim: number;
-  outputDim: number;
-  activation: string;
+  kind?: string;
+  inputDim?: number;
+  outputDim?: number;
+  activation?: string;
+  p?: number;
+  features?: number;
 }
 
 export interface NativeTrainConfig {
@@ -34,11 +37,14 @@ export interface NativeTrainOutcome {
 }
 
 export interface NativeLayerState {
+  kind: string;
   inputDim: number;
   outputDim: number;
   activation: string;
   weights: Float64Array;
   bias: Float64Array;
+  p: number;
+  features: number;
 }
 
 export interface NativeModelInstance {

@@ -1,4 +1,4 @@
-import { type ActivationName, type LayerSpec, dense } from "./layers.js";
+import { type ActivationName, type LayerSpec, dense, dropout, layerNorm } from "./layers.js";
 import { type NativeModelInstance, getNativeModel } from "./native.js";
 import { Tensor } from "./tensor.js";
 
@@ -52,11 +52,14 @@ export interface TrainOutcome {
 
 /** Estado serializable de una capa. */
 export interface LayerState {
+  kind: string;
   inputDim: number;
   outputDim: number;
   activation: ActivationName;
   weights: number[];
   bias: number[];
+  p: number;
+  features: number;
 }
 
 /** Estado serializable del modelo completo (JSON-friendly). */
@@ -143,21 +146,31 @@ export class Model {
     return {
       version: 1,
       layers: this.native.save().map((l) => ({
+        kind: l.kind,
         inputDim: l.inputDim,
         outputDim: l.outputDim,
         activation: l.activation as ActivationName,
         weights: Array.from(l.weights),
         bias: Array.from(l.bias),
+        p: l.p,
+        features: l.features,
       })),
     };
   }
 
   /** Reconstruye un modelo desde un estado guardado con {@link Model.save}. */
   static load(state: ModelState, seed = 42): Model {
-    const layers = state.layers.map((l) => dense(l.inputDim, l.outputDim, l.activation));
-    const model = new Model(layers, seed);
+    const specs: LayerSpec[] = state.layers.map((l) => {
+      if (l.kind === "dropout") return dropout(l.p);
+      if (l.kind === "layernorm") return layerNorm(l.features);
+      return dense(l.inputDim, l.outputDim, l.activation);
+    });
+    const model = new Model(specs, seed);
     state.layers.forEach((l, i) => {
-      model.native.setWeights(i, Float64Array.from(l.weights), Float64Array.from(l.bias));
+      // Solo dense y layernorm tienen pesos que restaurar.
+      if (l.kind === "dense" || l.kind === "layernorm") {
+        model.native.setWeights(i, Float64Array.from(l.weights), Float64Array.from(l.bias));
+      }
     });
     return model;
   }

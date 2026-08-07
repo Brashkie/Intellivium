@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TensorDataset } from "../src/data.js";
-import { dense } from "../src/layers.js";
+import { dense, dropout, layerNorm } from "../src/layers.js";
 import { Model } from "../src/model.js";
 import { getNativeModel } from "../src/native.js";
 import { tensor } from "../src/tensor.js";
@@ -197,5 +197,49 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
     const y = tensor([[0], [1]]);
     const model = new Model([dense(2, 4, "tanh"), dense(4, 1, "sigmoid")]);
     expect(Number.isFinite(model.evaluate(X, y))).toBe(true);
+  });
+  it("entrena con Dropout + LayerNorm (Fase 3)", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const model = new Model([
+      dense(2, 12, "relu"),
+      layerNorm(12),
+      dropout(0.1),
+      dense(12, 1, "sigmoid"),
+    ]);
+    const hist = await model.train(X, y, {
+      epochs: 2500,
+      lr: 0.03,
+      optimizer: "adam",
+      loss: "bce",
+    });
+    expect((hist.at(-1) ?? 1) < hist[0]).toBe(true);
+  });
+
+  it("save/load conserva capas Dropout/LayerNorm", async () => {
+    const X = tensor([
+      [0, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1]]);
+    const model = new Model([
+      dense(2, 6, "relu"),
+      layerNorm(6),
+      dropout(0.2),
+      dense(6, 1, "sigmoid"),
+    ]);
+    await model.train(X, y, { epochs: 200, lr: 0.05, optimizer: "adam", loss: "bce" });
+
+    const restored = Model.load(JSON.parse(JSON.stringify(model.save())));
+    const a = model.predict(X).toArray();
+    const b = restored.predict(X).toArray();
+    for (let i = 0; i < a.length; i++) {
+      expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
+    }
   });
 });

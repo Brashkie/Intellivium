@@ -45,12 +45,12 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.6.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.7.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
 - Operaciones: `matmul`, `add` con broadcast de bias, `relu`, `sigmoid`, `tanh`, `MSE`.
-- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, activaciones extra (**LeakyReLU / ELU / GELU**) y losses **MAE / Huber**, **vistas de tensor** (reshape / transpose / slice), **mini-batches** con `Dataset`/`DataLoader`, **validación + early stopping + checkpoints**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
+- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, activaciones extra (**LeakyReLU / ELU / GELU**) y losses **MAE / Huber**, **vistas de tensor** (reshape / transpose / slice), además de capas **Dropout** y **LayerNorm**, **mini-batches** con `Dataset`/`DataLoader`, **validación + early stopping + checkpoints**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
 - Bindings N-API + API TypeScript tipado.
 - Validado de punta a punta en XOR (no lineal): **loss 0.247 → 0.0002**.
 
@@ -223,13 +223,13 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [ ] exportWeights()
 - [ ] importWeights()
 
-### Fase 3 — Biblioteca Neural · 🔴
+### Fase 3 — Biblioteca Neural · 🟡
 *Agregar más bloques.*
 
 **Layers**
-- [ ] Dropout
+- [x] Dropout
 - [ ] BatchNorm
-- [ ] LayerNorm
+- [x] LayerNorm
 - [ ] Embedding
 - [ ] Flatten
 - [ ] Reshape

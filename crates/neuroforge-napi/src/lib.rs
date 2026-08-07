@@ -8,14 +8,20 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use ndarray::Array2;
-use neuroforge_core::{Activation, Dense, Loss, Model, Optimizer, Rng, TrainConfig};
+use neuroforge_core::{Activation, Layer, Loss, Model, Optimizer, Rng, TrainConfig};
 
-/// Especificación de una capa densa, recibida desde JS como objeto.
+/// Especificación de una capa recibida desde JS.
+/// `kind`: "dense" | "dropout" | "layernorm".
 #[napi(object)]
 pub struct LayerSpec {
-    pub input_dim: u32,
-    pub output_dim: u32,
-    pub activation: String,
+    pub kind: Option<String>,
+    pub input_dim: Option<u32>,
+    pub output_dim: Option<u32>,
+    pub activation: Option<String>,
+    /// probabilidad de dropout
+    pub p: Option<f64>,
+    /// features de layernorm
+    pub features: Option<u32>,
 }
 
 /// Config de entrenamiento recibida desde JS.
@@ -82,13 +88,16 @@ impl JsTrainConfig {
 /// Estado serializable de una capa (para save/load desde JS).
 #[napi(object)]
 pub struct LayerState {
+    pub kind: String,
     pub input_dim: u32,
     pub output_dim: u32,
     pub activation: String,
-    /// Pesos W aplanados row-major (input_dim * output_dim).
+    /// Pesos aplanados row-major (dense: W; layernorm: gamma). Vacío en dropout.
     pub weights: Float64Array,
-    /// Bias (output_dim).
+    /// Bias / beta. Vacío en dropout.
     pub bias: Float64Array,
+    pub p: f64,
+    pub features: u32,
 }
 
 #[napi(js_name = "Model")]
@@ -108,14 +117,28 @@ impl JsModel {
         let mut built = Vec::with_capacity(layers.len());
         let mut out_dim = 0u32;
         for l in &layers {
-            let act = Activation::from_str(&l.activation);
-            built.push(Dense::new(
-                l.input_dim as usize,
-                l.output_dim as usize,
-                act,
-                &mut rng,
-            ));
-            out_dim = l.output_dim;
+            match l.kind.as_deref().unwrap_or("dense") {
+                "dropout" => {
+                    built.push(Layer::dropout(l.p.unwrap_or(0.5) as f32));
+                }
+                "layernorm" => {
+                    let f = l
+                        .features
+                        .ok_or_else(|| Error::from_reason("layernorm requiere 'features'"))?;
+                    built.push(Layer::layer_norm(f as usize));
+                }
+                _ => {
+                    let inp = l
+                        .input_dim
+                        .ok_or_else(|| Error::from_reason("dense requiere 'inputDim'"))?;
+                    let out = l
+                        .output_dim
+                        .ok_or_else(|| Error::from_reason("dense requiere 'outputDim'"))?;
+                    let act = Activation::from_str(l.activation.as_deref().unwrap_or("linear"));
+                    built.push(Layer::dense(inp as usize, out as usize, act, &mut rng));
+                    out_dim = out;
+                }
+            }
         }
         Ok(JsModel {
             inner: Model::new(built),
@@ -222,20 +245,49 @@ impl JsModel {
     /// Serializa los pesos de todas las capas (para guardar el modelo).
     #[napi]
     pub fn save(&self) -> Vec<LayerState> {
-        self.inner
-            .layers
-            .iter()
-            .map(|l| LayerState {
-                input_dim: l.w.nrows() as u32,
-                output_dim: l.w.ncols() as u32,
-                activation: l.act.as_str().to_string(),
-                weights: Float64Array::new(l.w.iter().map(|&v| v as f64).collect()),
-                bias: Float64Array::new(l.b.iter().map(|&v| v as f64).collect()),
+        let empty = || Float64Array::new(vec![]);
+        (0..self.inner.layer_count())
+            .map(|i| {
+                if let Some(d) = self.inner.dense_at(i) {
+                    LayerState {
+                        kind: "dense".to_string(),
+                        input_dim: d.w.nrows() as u32,
+                        output_dim: d.w.ncols() as u32,
+                        activation: d.act.as_str().to_string(),
+                        weights: Float64Array::new(d.w.iter().map(|&v| v as f64).collect()),
+                        bias: Float64Array::new(d.b.iter().map(|&v| v as f64).collect()),
+                        p: 0.0,
+                        features: 0,
+                    }
+                } else if let Some(ln) = self.inner.layernorm_at(i) {
+                    let feats = ln.gamma.ncols() as u32;
+                    LayerState {
+                        kind: "layernorm".to_string(),
+                        input_dim: 0,
+                        output_dim: 0,
+                        activation: "linear".to_string(),
+                        weights: Float64Array::new(ln.gamma.iter().map(|&v| v as f64).collect()),
+                        bias: Float64Array::new(ln.beta.iter().map(|&v| v as f64).collect()),
+                        p: 0.0,
+                        features: feats,
+                    }
+                } else {
+                    LayerState {
+                        kind: "dropout".to_string(),
+                        input_dim: 0,
+                        output_dim: 0,
+                        activation: "linear".to_string(),
+                        weights: empty(),
+                        bias: empty(),
+                        p: self.inner.dropout_p(i).unwrap_or(0.0) as f64,
+                        features: 0,
+                    }
+                }
             })
             .collect()
     }
 
-    /// Reemplaza los pesos de una capa (para cargar un modelo guardado).
+    /// Reemplaza los pesos de una capa (dense o layernorm) al cargar un modelo.
     #[napi]
     pub fn set_weights(
         &mut self,
@@ -244,16 +296,18 @@ impl JsModel {
         bias: Float64Array,
     ) -> Result<()> {
         let i = index as usize;
-        if i >= self.inner.layers.len() {
+        if i >= self.inner.layer_count() {
             return Err(Error::from_reason(format!("capa {i} fuera de rango")));
         }
-        let (rows, cols) = {
-            let w = &self.inner.layers[i].w;
-            (w.nrows(), w.ncols())
-        };
-        let w = to_array2(&weights, rows, cols)?;
-        let b = to_array2(&bias, 1, cols)?;
-        self.inner.set_weights(i, w, b);
+        if let Some((rows, cols)) = self.inner.dense_at(i).map(|d| (d.w.nrows(), d.w.ncols())) {
+            let w = to_array2(&weights, rows, cols)?;
+            let b = to_array2(&bias, 1, cols)?;
+            self.inner.set_dense_weights(i, w, b);
+        } else if let Some(feats) = self.inner.layernorm_at(i).map(|ln| ln.gamma.ncols()) {
+            let g = to_array2(&weights, 1, feats)?;
+            let b = to_array2(&bias, 1, feats)?;
+            self.inner.set_layernorm_weights(i, g, b);
+        }
         Ok(())
     }
 }
