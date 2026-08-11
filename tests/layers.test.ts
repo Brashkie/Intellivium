@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dense, dropout, layerNorm } from "../src/layers.js";
+import { batchNorm, dense, dropout, layerNorm } from "../src/layers.js";
 
 describe("dense", () => {
   it("crea una spec con la activación dada", () => {
@@ -30,5 +30,11 @@ describe("dropout", () => {
 describe("layerNorm", () => {
   it("crea una spec de layernorm", () => {
     expect(layerNorm(16)).toEqual({ kind: "layernorm", features: 16 });
+  });
+});
+
+describe("batchNorm", () => {
+  it("crea una spec de batchnorm", () => {
+    expect(batchNorm(8)).toEqual({ kind: "batchnorm", features: 8 });
   });
 });

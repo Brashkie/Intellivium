@@ -26,6 +26,7 @@ enum Op {
     Huber(usize, usize),                 // Huber loss (delta=1.0)
     Dropout(usize),                      // input (la máscara se guarda en Tape.masks)
     LayerNorm(usize, usize, usize, f32), // input, gamma, beta, eps
+    BatchNorm(usize, usize, usize, f32), // input, gamma, beta, eps (stats por columna)
 }
 
 const EPS: f32 = 1e-7;
@@ -249,6 +250,31 @@ impl Tape {
         self.push(out, Op::LayerNorm(a, gamma, beta, eps))
     }
 
+    /// Batch Normalization por columnas. Normaliza con `mean`/`var` dados
+    /// (stats del batch en training, o running en eval), ambos shape (1, features).
+    /// El backward recomputa las stats del batch desde la entrada (solo válido
+    /// en training, que es cuando se llama a backward).
+    pub fn batch_norm(
+        &mut self,
+        a: usize,
+        gamma: usize,
+        beta: usize,
+        mean: &Array2<f32>,
+        var: &Array2<f32>,
+        eps: f32,
+    ) -> usize {
+        let (rows, cols) = (self.values[a].nrows(), self.values[a].ncols());
+        let mut out = Array2::<f32>::zeros((rows, cols));
+        for c in 0..cols {
+            let std = (var[[0, c]] + eps).sqrt();
+            for r in 0..rows {
+                let xhat = (self.values[a][[r, c]] - mean[[0, c]]) / std;
+                out[[r, c]] = self.values[gamma][[0, c]] * xhat + self.values[beta][[0, c]];
+            }
+        }
+        self.push(out, Op::BatchNorm(a, gamma, beta, eps))
+    }
+
     /// Backprop desde `out` (típicamente la loss escalar). Devuelve el gradiente
     /// de CADA nodo de la cinta, indexado por su id.
     pub fn backward(&self, out: usize) -> Vec<Array2<f32>> {
@@ -425,6 +451,51 @@ impl Tape {
                         mean_dxhat_xhat /= cf;
                         for c in 0..cols {
                             dx[[r, c]] = (dxhat[c] - mean_dxhat - xhat[c] * mean_dxhat_xhat) / std;
+                        }
+                    }
+                    grads[a] = &grads[a] + &dx;
+                    grads[gamma] = &grads[gamma] + &dgamma;
+                    grads[beta] = &grads[beta] + &dbeta;
+                }
+                Op::BatchNorm(a, gamma, beta, eps) => {
+                    // Reduce sobre las filas (batch), por columna.
+                    let (rows, cols) = (self.values[a].nrows(), self.values[a].ncols());
+                    let nf = rows as f32;
+                    let mut dx = Array2::<f32>::zeros((rows, cols));
+                    let mut dgamma = Array2::<f32>::zeros((1, cols));
+                    let mut dbeta = Array2::<f32>::zeros((1, cols));
+                    for c in 0..cols {
+                        // stats del batch para esta columna
+                        let mut mean = 0.0;
+                        for r in 0..rows {
+                            mean += self.values[a][[r, c]];
+                        }
+                        mean /= nf;
+                        let mut var = 0.0;
+                        for r in 0..rows {
+                            let d = self.values[a][[r, c]] - mean;
+                            var += d * d;
+                        }
+                        var /= nf;
+                        let std = (var + eps).sqrt();
+
+                        let gc = self.values[gamma][[0, c]];
+                        let mut sum_dxhat = 0.0;
+                        let mut sum_dxhat_xhat = 0.0;
+                        for r in 0..rows {
+                            let xhat = (self.values[a][[r, c]] - mean) / std;
+                            let dxhat = g[[r, c]] * gc;
+                            sum_dxhat += dxhat;
+                            sum_dxhat_xhat += dxhat * xhat;
+                            dgamma[[0, c]] += g[[r, c]] * xhat;
+                            dbeta[[0, c]] += g[[r, c]];
+                        }
+                        let m1 = sum_dxhat / nf;
+                        let m2 = sum_dxhat_xhat / nf;
+                        for r in 0..rows {
+                            let xhat = (self.values[a][[r, c]] - mean) / std;
+                            let dxhat = g[[r, c]] * gc;
+                            dx[[r, c]] = (dxhat - m1 - xhat * m2) / std;
                         }
                     }
                     grads[a] = &grads[a] + &dx;

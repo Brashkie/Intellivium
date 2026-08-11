@@ -28,7 +28,13 @@ export interface LayerNormSpec {
   features: number;
 }
 
-export type LayerSpec = DenseSpec | DropoutSpec | LayerNormSpec;
+/** Batch Normalization sobre `features` columnas. */
+export interface BatchNormSpec {
+  kind: "batchnorm";
+  features: number;
+}
+
+export type LayerSpec = DenseSpec | DropoutSpec | LayerNormSpec | BatchNormSpec;
 
 /** Define una capa densa: dense(entradas, salidas, activacion). */
 export function dense(
@@ -47,4 +53,9 @@ export function dropout(p: number): DropoutSpec {
 /** Define una capa de Layer Normalization: layerNorm(features). */
 export function layerNorm(features: number): LayerNormSpec {
   return { kind: "layernorm", features };
+}
+
+/** Batch Normalization sobre `features` columnas (running stats, modo train/eval). */
+export function batchNorm(features: number): BatchNormSpec {
+  return { kind: "batchnorm", features };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TensorDataset } from "../src/data.js";
-import { dense, dropout, layerNorm } from "../src/layers.js";
+import { batchNorm, dense, dropout, layerNorm } from "../src/layers.js";
 import { Model } from "../src/model.js";
 import { getNativeModel } from "../src/native.js";
 import { tensor } from "../src/tensor.js";
@@ -235,6 +235,32 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
     ]);
     await model.train(X, y, { epochs: 200, lr: 0.05, optimizer: "adam", loss: "bce" });
 
+    const restored = Model.load(JSON.parse(JSON.stringify(model.save())));
+    const a = model.predict(X).toArray();
+    const b = restored.predict(X).toArray();
+    for (let i = 0; i < a.length; i++) {
+      expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
+    }
+  });
+
+  it("entrena con BatchNorm y save/load conserva running stats", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const model = new Model([dense(2, 8, "relu"), batchNorm(8), dense(8, 1, "sigmoid")]);
+    const hist = await model.train(X, y, {
+      epochs: 1500,
+      lr: 0.03,
+      optimizer: "adam",
+      loss: "bce",
+    });
+    expect((hist.at(-1) ?? 1) < hist[0]).toBe(true);
+
+    // save/load reproduce exactamente las predicciones (usa running stats)
     const restored = Model.load(JSON.parse(JSON.stringify(model.save())));
     const a = model.predict(X).toArray();
     const b = restored.predict(X).toArray();

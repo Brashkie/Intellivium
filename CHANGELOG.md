@@ -6,6 +6,27 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-07
+### Added
+- **BatchNorm** (`batchNorm(features)`): normalización por columna sobre el batch,
+  con **estadísticas móviles** (running mean/var, momentum 0.1) al estilo PyTorch.
+  En training usa stats del batch y actualiza las running; en `predict`/`evaluate`
+  usa las running (inferencia estable e independiente del batch).
+- `save`/`load` serializan también las running stats de BatchNorm, así que un
+  modelo cargado infiere idéntico.
+- Tests (Rust y TS) de BatchNorm: entrena, actualiza running stats y round-trip.
+
+## [0.7.1] - 2026-08-03
+### Added
+- **Mejoras de Fase 1 — más operaciones de `Tensor`** (solo JS, sin tocar el motor):
+  - Factories: `Tensor.zeros`, `ones`, `full`, `eye`.
+  - Aritmética elemento a elemento con broadcasting de vector fila/columna y
+    escalares: `add`, `sub`, `mul`, `scale`, `addScalar`, `neg`, `map`.
+  - `matmul` (utilidad en JS, con verificación de shapes).
+  - Reducciones: `sum`, `mean`, `max`, `min`, `argmaxRows`.
+  - Utilidades: `clone`, `equals` (con tolerancia).
+- Tests de todo lo anterior (`tensor.ts` al 100% de cobertura).
+
 ## [0.7.0] - 2026-07-25
 ### Added
 - **Fase 3 — comienzo de la biblioteca neural.** El modelo pasa de una lista de

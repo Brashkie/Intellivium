@@ -8,6 +8,7 @@ export {
   dense,
   dropout,
   layerNorm,
+  batchNorm,
   type ActivationName,
   type LayerSpec,
 } from "./layers.js";
@@ -24,8 +25,18 @@ export {
 } from "./model.js";
 
 import { DataLoader, TensorDataset } from "./data.js";
-import { dense, dropout, layerNorm } from "./layers.js";
+import { batchNorm, dense, dropout, layerNorm } from "./layers.js";
 import { Model } from "./model.js";
 import { Tensor, tensor } from "./tensor.js";
 
-export default { tensor, dense, dropout, layerNorm, Model, Tensor, TensorDataset, DataLoader };
+export default {
+  tensor,
+  dense,
+  dropout,
+  layerNorm,
+  batchNorm,
+  Model,
+  Tensor,
+  TensorDataset,
+  DataLoader,
+};

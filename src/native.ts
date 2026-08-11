@@ -45,6 +45,8 @@ export interface NativeLayerState {
   bias: Float64Array;
   p: number;
   features: number;
+  runningMean: Float64Array;
+  runningVar: Float64Array;
 }
 
 export interface NativeModelInstance {
@@ -81,6 +83,13 @@ export interface NativeModelInstance {
   predict(x: Float64Array, xRows: number, xCols: number): Float64Array;
   save(): NativeLayerState[];
   setWeights(index: number, weights: Float64Array, bias: Float64Array): void;
+  setBatchnormWeights(
+    index: number,
+    gamma: Float64Array,
+    beta: Float64Array,
+    runningMean: Float64Array,
+    runningVar: Float64Array,
+  ): void;
   readonly outputDim: number;
 }
 

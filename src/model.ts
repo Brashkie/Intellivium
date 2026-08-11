@@ -1,4 +1,11 @@
-import { type ActivationName, type LayerSpec, dense, dropout, layerNorm } from "./layers.js";
+import {
+  type ActivationName,
+  type LayerSpec,
+  batchNorm,
+  dense,
+  dropout,
+  layerNorm,
+} from "./layers.js";
 import { type NativeModelInstance, getNativeModel } from "./native.js";
 import { Tensor } from "./tensor.js";
 
@@ -60,6 +67,8 @@ export interface LayerState {
   bias: number[];
   p: number;
   features: number;
+  runningMean: number[];
+  runningVar: number[];
 }
 
 /** Estado serializable del modelo completo (JSON-friendly). */
@@ -154,6 +163,8 @@ export class Model {
         bias: Array.from(l.bias),
         p: l.p,
         features: l.features,
+        runningMean: Array.from(l.runningMean),
+        runningVar: Array.from(l.runningVar),
       })),
     };
   }
@@ -163,13 +174,22 @@ export class Model {
     const specs: LayerSpec[] = state.layers.map((l) => {
       if (l.kind === "dropout") return dropout(l.p);
       if (l.kind === "layernorm") return layerNorm(l.features);
+      if (l.kind === "batchnorm") return batchNorm(l.features);
       return dense(l.inputDim, l.outputDim, l.activation);
     });
     const model = new Model(specs, seed);
     state.layers.forEach((l, i) => {
-      // Solo dense y layernorm tienen pesos que restaurar.
+      // Restaura pesos según el tipo de capa.
       if (l.kind === "dense" || l.kind === "layernorm") {
         model.native.setWeights(i, Float64Array.from(l.weights), Float64Array.from(l.bias));
+      } else if (l.kind === "batchnorm") {
+        model.native.setBatchnormWeights(
+          i,
+          Float64Array.from(l.weights),
+          Float64Array.from(l.bias),
+          Float64Array.from(l.runningMean),
+          Float64Array.from(l.runningVar),
+        );
       }
     });
     return model;

@@ -98,6 +98,10 @@ pub struct LayerState {
     pub bias: Float64Array,
     pub p: f64,
     pub features: u32,
+    /// BatchNorm: media móvil (running mean). Vacío en otras capas.
+    pub running_mean: Float64Array,
+    /// BatchNorm: varianza móvil (running var). Vacío en otras capas.
+    pub running_var: Float64Array,
 }
 
 #[napi(js_name = "Model")]
@@ -126,6 +130,12 @@ impl JsModel {
                         .features
                         .ok_or_else(|| Error::from_reason("layernorm requiere 'features'"))?;
                     built.push(Layer::layer_norm(f as usize));
+                }
+                "batchnorm" => {
+                    let f = l
+                        .features
+                        .ok_or_else(|| Error::from_reason("batchnorm requiere 'features'"))?;
+                    built.push(Layer::batch_norm(f as usize));
                 }
                 _ => {
                     let inp = l
@@ -246,6 +256,7 @@ impl JsModel {
     #[napi]
     pub fn save(&self) -> Vec<LayerState> {
         let empty = || Float64Array::new(vec![]);
+        let flat = |a: &Array2<f32>| Float64Array::new(a.iter().map(|&v| v as f64).collect());
         (0..self.inner.layer_count())
             .map(|i| {
                 if let Some(d) = self.inner.dense_at(i) {
@@ -254,22 +265,38 @@ impl JsModel {
                         input_dim: d.w.nrows() as u32,
                         output_dim: d.w.ncols() as u32,
                         activation: d.act.as_str().to_string(),
-                        weights: Float64Array::new(d.w.iter().map(|&v| v as f64).collect()),
-                        bias: Float64Array::new(d.b.iter().map(|&v| v as f64).collect()),
+                        weights: flat(&d.w),
+                        bias: flat(&d.b),
                         p: 0.0,
                         features: 0,
+                        running_mean: empty(),
+                        running_var: empty(),
                     }
                 } else if let Some(ln) = self.inner.layernorm_at(i) {
-                    let feats = ln.gamma.ncols() as u32;
                     LayerState {
                         kind: "layernorm".to_string(),
                         input_dim: 0,
                         output_dim: 0,
                         activation: "linear".to_string(),
-                        weights: Float64Array::new(ln.gamma.iter().map(|&v| v as f64).collect()),
-                        bias: Float64Array::new(ln.beta.iter().map(|&v| v as f64).collect()),
+                        weights: flat(&ln.gamma),
+                        bias: flat(&ln.beta),
                         p: 0.0,
-                        features: feats,
+                        features: ln.gamma.ncols() as u32,
+                        running_mean: empty(),
+                        running_var: empty(),
+                    }
+                } else if let Some(bn) = self.inner.batchnorm_at(i) {
+                    LayerState {
+                        kind: "batchnorm".to_string(),
+                        input_dim: 0,
+                        output_dim: 0,
+                        activation: "linear".to_string(),
+                        weights: flat(&bn.gamma),
+                        bias: flat(&bn.beta),
+                        p: 0.0,
+                        features: bn.gamma.ncols() as u32,
+                        running_mean: flat(&bn.running_mean),
+                        running_var: flat(&bn.running_var),
                     }
                 } else {
                     LayerState {
@@ -281,6 +308,8 @@ impl JsModel {
                         bias: empty(),
                         p: self.inner.dropout_p(i).unwrap_or(0.0) as f64,
                         features: 0,
+                        running_mean: empty(),
+                        running_var: empty(),
                     }
                 }
             })
@@ -308,6 +337,29 @@ impl JsModel {
             let b = to_array2(&bias, 1, feats)?;
             self.inner.set_layernorm_weights(i, g, b);
         }
+        Ok(())
+    }
+
+    /// Reemplaza gamma/beta y las running stats de una capa BatchNorm (para load).
+    #[napi]
+    pub fn set_batchnorm_weights(
+        &mut self,
+        index: u32,
+        gamma: Float64Array,
+        beta: Float64Array,
+        running_mean: Float64Array,
+        running_var: Float64Array,
+    ) -> Result<()> {
+        let i = index as usize;
+        let feats = match self.inner.batchnorm_at(i).map(|bn| bn.gamma.ncols()) {
+            Some(f) => f,
+            None => return Ok(()),
+        };
+        let g = to_array2(&gamma, 1, feats)?;
+        let b = to_array2(&beta, 1, feats)?;
+        let rm = to_array2(&running_mean, 1, feats)?;
+        let rv = to_array2(&running_var, 1, feats)?;
+        self.inner.set_batchnorm_weights(i, g, b, rm, rv);
         Ok(())
     }
 }

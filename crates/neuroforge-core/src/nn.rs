@@ -237,12 +237,46 @@ impl LayerNorm {
     }
 }
 
+/// Batch Normalization por columnas con estadísticas móviles (running stats).
+/// En training normaliza con stats del batch y actualiza las running; en eval
+/// (predict/evaluate) normaliza con las running.
+pub struct BatchNorm {
+    pub gamma: Array2<f32>,        // (1, features)
+    pub beta: Array2<f32>,         // (1, features)
+    pub running_mean: Array2<f32>, // (1, features)
+    pub running_var: Array2<f32>,  // (1, features)
+    pub momentum: f32,
+    pub eps: f32,
+    mg: Array2<f32>,
+    vg: Array2<f32>,
+    mb: Array2<f32>,
+    vb: Array2<f32>,
+}
+
+impl BatchNorm {
+    pub fn new(features: usize) -> Self {
+        BatchNorm {
+            gamma: Array2::ones((1, features)),
+            beta: Array2::zeros((1, features)),
+            running_mean: Array2::zeros((1, features)),
+            running_var: Array2::ones((1, features)),
+            momentum: 0.1,
+            eps: 1e-5,
+            mg: Array2::zeros((1, features)),
+            vg: Array2::zeros((1, features)),
+            mb: Array2::zeros((1, features)),
+            vb: Array2::zeros((1, features)),
+        }
+    }
+}
+
 /// Una capa del modelo secuencial.
 pub enum Layer {
     Dense(Dense),
     /// Dropout con probabilidad p (inverted dropout; activo solo en training).
     Dropout(f32),
     LayerNorm(LayerNorm),
+    BatchNorm(BatchNorm),
 }
 
 impl Layer {
@@ -255,12 +289,16 @@ impl Layer {
     pub fn layer_norm(features: usize) -> Layer {
         Layer::LayerNorm(LayerNorm::new(features))
     }
+    pub fn batch_norm(features: usize) -> Layer {
+        Layer::BatchNorm(BatchNorm::new(features))
+    }
 
     pub fn kind(&self) -> &'static str {
         match self {
             Layer::Dense(_) => "dense",
             Layer::Dropout(_) => "dropout",
             Layer::LayerNorm(_) => "layernorm",
+            Layer::BatchNorm(_) => "batchnorm",
         }
     }
 
@@ -289,8 +327,39 @@ impl Layer {
                 apply_param(&mut ln.gamma, &mut ln.mg, &mut ln.vg, &gg, opt, lr, t);
                 apply_param(&mut ln.beta, &mut ln.mb, &mut ln.vb, &gb, opt, lr, t);
             }
+            Layer::BatchNorm(bn) => {
+                let gg = &grads[ids[0]] * scale;
+                let gb = &grads[ids[1]] * scale;
+                apply_param(&mut bn.gamma, &mut bn.mg, &mut bn.vg, &gg, opt, lr, t);
+                apply_param(&mut bn.beta, &mut bn.mb, &mut bn.vb, &gb, opt, lr, t);
+            }
         }
     }
+}
+
+/// Media y varianza (sesgada) por columna sobre las filas (batch).
+/// Devuelve dos arrays (1, cols).
+fn column_stats(x: &Array2<f32>) -> (Array2<f32>, Array2<f32>) {
+    let (rows, cols) = (x.nrows(), x.ncols());
+    let nf = rows as f32;
+    let mut mean = Array2::<f32>::zeros((1, cols));
+    let mut var = Array2::<f32>::zeros((1, cols));
+    for c in 0..cols {
+        let mut m = 0.0;
+        for r in 0..rows {
+            m += x[[r, c]];
+        }
+        m /= nf;
+        let mut v = 0.0;
+        for r in 0..rows {
+            let d = x[[r, c]] - m;
+            v += d * d;
+        }
+        v /= nf;
+        mean[[0, c]] = m;
+        var[[0, c]] = v;
+    }
+    (mean, var)
 }
 
 /// Actualiza un parámetro con SGD o Adam.
@@ -353,6 +422,13 @@ impl Model {
         }
     }
 
+    pub fn batchnorm_at(&self, i: usize) -> Option<&BatchNorm> {
+        match &self.layers[i] {
+            Layer::BatchNorm(bn) => Some(bn),
+            _ => None,
+        }
+    }
+
     /// Reemplaza W y b de una capa densa (para load).
     pub fn set_dense_weights(&mut self, i: usize, w: Array2<f32>, b: Array2<f32>) {
         if let Layer::Dense(d) = &mut self.layers[i] {
@@ -377,18 +453,46 @@ impl Model {
         }
     }
 
-    /// Construye el grafo forward. `training` activa Dropout. Devuelve la salida
-    /// y, por capa, los ids de sus parámetros en la cinta.
+    /// Reemplaza gamma/beta y las running stats de una capa BatchNorm (para load).
+    pub fn set_batchnorm_weights(
+        &mut self,
+        i: usize,
+        gamma: Array2<f32>,
+        beta: Array2<f32>,
+        running_mean: Array2<f32>,
+        running_var: Array2<f32>,
+    ) {
+        if let Layer::BatchNorm(bn) = &mut self.layers[i] {
+            bn.mg = Array2::zeros(gamma.raw_dim());
+            bn.vg = Array2::zeros(gamma.raw_dim());
+            bn.mb = Array2::zeros(beta.raw_dim());
+            bn.vb = Array2::zeros(beta.raw_dim());
+            bn.gamma = gamma;
+            bn.beta = beta;
+            bn.running_mean = running_mean;
+            bn.running_var = running_var;
+        }
+    }
+
+    /// Construye el grafo forward. `training` activa Dropout y hace que BatchNorm
+    /// use stats del batch. Devuelve (salida, ids de parámetros por capa,
+    /// actualizaciones de running stats de BatchNorm: (índice de capa, mean, var)).
+    #[allow(clippy::type_complexity)]
     fn forward_tape(
         &self,
         tape: &mut Tape,
         x: usize,
         training: bool,
         mut rng: Option<&mut Rng>,
-    ) -> (usize, Vec<Vec<usize>>) {
+    ) -> (
+        usize,
+        Vec<Vec<usize>>,
+        Vec<(usize, Array2<f32>, Array2<f32>)>,
+    ) {
         let mut cur = x;
         let mut params: Vec<Vec<usize>> = Vec::with_capacity(self.layers.len());
-        for layer in &self.layers {
+        let mut bn_updates: Vec<(usize, Array2<f32>, Array2<f32>)> = Vec::new();
+        for (li, layer) in self.layers.iter().enumerate() {
             match layer {
                 Layer::Dense(d) => {
                     let wid = tape.leaf(d.w.clone());
@@ -421,15 +525,34 @@ impl Model {
                     cur = tape.layer_norm(cur, gid, bid, ln.eps);
                     params.push(vec![gid, bid]);
                 }
+                Layer::BatchNorm(bn) => {
+                    let gid = tape.leaf(bn.gamma.clone());
+                    let bid = tape.leaf(bn.beta.clone());
+                    if training {
+                        let (mean, var) = column_stats(tape.value(cur));
+                        cur = tape.batch_norm(cur, gid, bid, &mean, &var, bn.eps);
+                        bn_updates.push((li, mean, var));
+                    } else {
+                        cur = tape.batch_norm(
+                            cur,
+                            gid,
+                            bid,
+                            &bn.running_mean,
+                            &bn.running_var,
+                            bn.eps,
+                        );
+                    }
+                    params.push(vec![gid, bid]);
+                }
             }
         }
-        (cur, params)
+        (cur, params, bn_updates)
     }
 
     pub fn predict(&self, x: &Array2<f32>) -> Array2<f32> {
         let mut tape = Tape::new();
         let xid = tape.leaf(x.clone());
-        let (out, _) = self.forward_tape(&mut tape, xid, false, None);
+        let (out, _, _) = self.forward_tape(&mut tape, xid, false, None);
         tape.value(out).clone()
     }
 
@@ -450,12 +573,21 @@ impl Model {
         let yid = tape.leaf(yb.clone());
 
         let mut rng = std::mem::replace(&mut self.rng, Rng::new(1));
-        let (out, param_ids) = self.forward_tape(&mut tape, xid, true, Some(&mut rng));
+        let (out, param_ids, bn_updates) = self.forward_tape(&mut tape, xid, true, Some(&mut rng));
         self.rng = rng;
 
         let loss = Self::build_loss(&mut tape, cfg.loss, out, yid);
         let loss_val = tape.value(loss)[[0, 0]];
         let grads = tape.backward(loss);
+
+        // Actualiza las running stats de cada BatchNorm con las del batch (EMA).
+        for (li, mean, var) in &bn_updates {
+            if let Layer::BatchNorm(bn) = &mut self.layers[*li] {
+                let m = bn.momentum;
+                bn.running_mean = &(&bn.running_mean * (1.0 - m)) + &(mean * m);
+                bn.running_var = &(&bn.running_var * (1.0 - m)) + &(var * m);
+            }
+        }
 
         // Clipping por norma L2 global sobre todos los parámetros.
         let mut scale = 1.0f32;
@@ -486,7 +618,7 @@ impl Model {
         let mut tape = Tape::new();
         let xid = tape.leaf(x.clone());
         let yid = tape.leaf(y.clone());
-        let (out, _) = self.forward_tape(&mut tape, xid, false, None);
+        let (out, _, _) = self.forward_tape(&mut tape, xid, false, None);
         let l = Self::build_loss(&mut tape, loss, out, yid);
         tape.value(l)[[0, 0]]
     }
@@ -499,6 +631,12 @@ impl Model {
                 Layer::Dense(d) => vec![d.w.clone(), d.b.clone()],
                 Layer::Dropout(_) => vec![],
                 Layer::LayerNorm(ln) => vec![ln.gamma.clone(), ln.beta.clone()],
+                Layer::BatchNorm(bn) => vec![
+                    bn.gamma.clone(),
+                    bn.beta.clone(),
+                    bn.running_mean.clone(),
+                    bn.running_var.clone(),
+                ],
             })
             .collect()
     }
@@ -514,6 +652,12 @@ impl Model {
                 Layer::LayerNorm(ln) => {
                     ln.gamma = params[0].clone();
                     ln.beta = params[1].clone();
+                }
+                Layer::BatchNorm(bn) => {
+                    bn.gamma = params[0].clone();
+                    bn.beta = params[1].clone();
+                    bn.running_mean = params[2].clone();
+                    bn.running_var = params[3].clone();
                 }
             }
         }
@@ -962,5 +1106,53 @@ mod tests {
             hist.last().unwrap() < hist.first().unwrap(),
             "LayerNorm no bajó la loss"
         );
+    }
+
+    #[test]
+    fn batchnorm_entrena_y_actualiza_running() {
+        let mut rng = Rng::new(15);
+        let mut model = Model::new(vec![
+            Layer::dense(2, 8, Activation::Relu, &mut rng),
+            Layer::batch_norm(8),
+            Layer::dense(8, 1, Activation::Sigmoid, &mut rng),
+        ]);
+        let (x, y) = xor_data();
+
+        // running stats arrancan en mean=0, var=1
+        let (m0, v0) = {
+            let bn = model.batchnorm_at(1).unwrap();
+            (bn.running_mean.clone(), bn.running_var.clone())
+        };
+        assert!(m0.iter().all(|&v| v == 0.0));
+        assert!(v0.iter().all(|&v| v == 1.0));
+
+        let mut cfg = TrainConfig::adam(2000, 0.03);
+        cfg.loss = Loss::Bce;
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            hist.last().unwrap() < hist.first().unwrap(),
+            "BatchNorm no bajó la loss"
+        );
+
+        // tras entrenar, las running stats ya no son las iniciales
+        let bn = model.batchnorm_at(1).unwrap();
+        let cambio_mean = bn
+            .running_mean
+            .iter()
+            .zip(m0.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6);
+        let cambio_var = bn
+            .running_var
+            .iter()
+            .zip(v0.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6);
+        assert!(
+            cambio_mean && cambio_var,
+            "running stats no se actualizaron"
+        );
+
+        // predict (eval) es determinista y finito
+        let p = model.predict(&x);
+        assert!(p.iter().all(|v| v.is_finite()));
     }
 }
