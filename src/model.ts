@@ -77,6 +77,21 @@ export interface ModelState {
   layers: LayerState[];
 }
 
+/** Pesos de una capa, sin metadatos de arquitectura. */
+export interface LayerWeights {
+  kind: string;
+  weights: number[];
+  bias: number[];
+  runningMean: number[];
+  runningVar: number[];
+}
+
+/** Solo los pesos del modelo (para `exportWeights`/`importWeights`). */
+export interface WeightSet {
+  version: 1;
+  layers: LayerWeights[];
+}
+
 /** Modelo secuencial de capas densas. El cómputo ocurre en el núcleo Rust. */
 export class Model {
   private readonly native: NativeModelInstance;
@@ -142,6 +157,56 @@ export class Model {
   /** Calcula la loss sobre un conjunto, sin entrenar. */
   evaluate(x: Tensor, y: Tensor, loss: LossName = "mse"): number {
     return this.native.evaluate(x.data, x.rows, x.cols, y.data, y.cols, loss);
+  }
+
+  /**
+   * Exporta solo los pesos (sin arquitectura). Útil para transferir pesos entre
+   * modelos de la misma arquitectura, fine-tuning o compartir parámetros.
+   */
+  exportWeights(): WeightSet {
+    return {
+      version: 1,
+      layers: this.native.save().map((l) => ({
+        kind: l.kind,
+        weights: Array.from(l.weights),
+        bias: Array.from(l.bias),
+        runningMean: Array.from(l.runningMean),
+        runningVar: Array.from(l.runningVar),
+      })),
+    };
+  }
+
+  /**
+   * Importa pesos exportados con {@link Model.exportWeights} sobre este modelo,
+   * que debe tener la misma arquitectura. Lanza si el número o tipo de capas
+   * no coincide.
+   */
+  importWeights(ws: WeightSet): void {
+    const current = this.native.save();
+    if (ws.layers.length !== current.length) {
+      throw new Error(
+        `importWeights: el modelo tiene ${current.length} capas pero los pesos traen ${ws.layers.length}`,
+      );
+    }
+    ws.layers.forEach((l, i) => {
+      if (l.kind !== current[i].kind) {
+        throw new Error(
+          `importWeights: capa ${i} es '${current[i].kind}' pero los pesos son '${l.kind}'`,
+        );
+      }
+      if (l.kind === "dense" || l.kind === "layernorm") {
+        this.native.setWeights(i, Float64Array.from(l.weights), Float64Array.from(l.bias));
+      } else if (l.kind === "batchnorm") {
+        this.native.setBatchnormWeights(
+          i,
+          Float64Array.from(l.weights),
+          Float64Array.from(l.bias),
+          Float64Array.from(l.runningMean),
+          Float64Array.from(l.runningVar),
+        );
+      }
+      // dropout: sin pesos.
+    });
   }
 
   /** Predice salidas para un batch de entradas. */

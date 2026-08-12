@@ -5,6 +5,23 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/),
 versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Tests
+- Cobertura completa de `importWeights`: casos de nº de capas distinto, tipo de
+  capa distinto, y transferencia de una capa BatchNorm (cierra el hueco de
+  cobertura en `model.ts`).
+
+
+## [0.9.0] - 2026-08-11
+### Added
+- **Custom Dataset**: interfaz `Dataset` (`length` + `get(i)`) que cualquier
+  fuente puede implementar (en memoria, generada, perezosa…). `DataLoader` ahora
+  acepta cualquier `Dataset`, no solo `TensorDataset`.
+- **`exportWeights()` / `importWeights()`**: variante solo-pesos de save/load.
+  Transfiere parámetros entre modelos de la misma arquitectura (fine-tuning,
+  weight sharing) con validación de nº y tipo de capas.
+- Tests de dataset generado y de transferencia de pesos.
+### Notes
+- Con esto la **Fase 2 (Training) queda completa** ✅.
 
 ## [0.8.0] - 2026-08-07
 ### Added

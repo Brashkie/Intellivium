@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DataLoader, TensorDataset } from "../src/data.js";
+import { DataLoader, type Dataset, TensorDataset } from "../src/data.js";
 import { tensor } from "../src/tensor.js";
 
 function makeDataset(n: number): TensorDataset {
@@ -93,5 +93,37 @@ describe("DataLoader", () => {
   it("acepta seed 0 (cae al estado interno mínimo)", () => {
     const [train, val] = makeDataset(8).split(0.25, true, 0);
     expect(train.length + val.length).toBe(8);
+  });
+});
+describe("Custom Dataset", () => {
+  it("DataLoader itera un dataset generado que implementa la interfaz", () => {
+    // Dataset "sintético": y = suma de x, generado al vuelo (sin tensores en memoria).
+    const ds: Dataset = {
+      length: 10,
+      get(i: number) {
+        return { x: [i, i + 1], y: [2 * i + 1] };
+      },
+    };
+    const dl = new DataLoader(ds, { batchSize: 4 });
+    expect(dl.length).toBe(3);
+    let seen = 0;
+    for (const batch of dl) {
+      expect(batch.x.cols).toBe(2);
+      expect(batch.y.cols).toBe(1);
+      // cada fila y = x[0]+x[1]
+      const xs = batch.x.toArray();
+      const ys = batch.y.toArray();
+      for (let r = 0; r < xs.length; r++) {
+        expect(ys[r][0]).toBe(xs[r][0] + xs[r][1]);
+      }
+      seen += batch.x.rows;
+    }
+    expect(seen).toBe(10);
+  });
+
+  it("un TensorDataset sigue sirviendo como Dataset", () => {
+    const ds = makeDataset(6);
+    expect(ds.get(0)).toEqual({ x: [0, 0], y: [0] });
+    expect(ds.get(3)).toEqual({ x: [3, 6], y: [1] });
   });
 });

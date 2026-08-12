@@ -12,7 +12,7 @@ export {
   type ActivationName,
   type LayerSpec,
 } from "./layers.js";
-export { TensorDataset, DataLoader, type Batch } from "./data.js";
+export { TensorDataset, DataLoader, type Batch, type Dataset } from "./data.js";
 export {
   Model,
   type TrainOptions,
@@ -20,6 +20,8 @@ export {
   type LossName,
   type ModelState,
   type LayerState,
+  type WeightSet,
+  type LayerWeights,
   type TrainOutcome,
   type ValidationData,
 } from "./model.js";

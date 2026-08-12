@@ -45,12 +45,12 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.8.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.9.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
 - Operaciones: `matmul`, `add` con broadcast de bias, `relu`, `sigmoid`, `tanh`, `MSE`.
-- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, activaciones extra (**LeakyReLU / ELU / GELU**) y losses **MAE / Huber**, **ops y vistas de tensor** (add/sub/mul, matmul, reducciones, reshape/transpose/slice), además de capas **Dropout**, **LayerNorm** y **BatchNorm**, **mini-batches** con `Dataset`/`DataLoader`, **validación + early stopping + checkpoints**, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
+- Capas `Dense` (init He), `Model` secuencial, optimizadores **SGD y Adam**, losses **MSE / BCE / cross-entropy categórica**, **softmax** para salida **multiclase**, activaciones extra (**LeakyReLU / ELU / GELU**) y losses **MAE / Huber**, **ops y vistas de tensor** (add/sub/mul, matmul, reducciones, reshape/transpose/slice), además de capas **Dropout**, **LayerNorm** y **BatchNorm**, **mini-batches** con `Dataset`/`DataLoader`, **validación + early stopping + checkpoints**, `Dataset` custom, export/import de pesos, **gradient clipping**, **decaimiento de lr** y **`save`/`load`** de modelos.
 - Bindings N-API + API TypeScript tipado.
 - Validado de punta a punta en XOR (no lineal): **loss 0.247 → 0.0002**.
 
@@ -197,13 +197,13 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [x] NAPI
 - [x] npm
 
-### Fase 2 — Entrenamiento · 🟡 (casi completa)
+### Fase 2 — Entrenamiento · ✅
 *Que entrenar un modelo sea cómodo.*
 
 **Dataset**
 - [x] Dataset
 - [x] TensorDataset
-- [ ] Custom Dataset
+- [x] Custom Dataset
 
 **DataLoader**
 - [x] Mini Batch
@@ -220,8 +220,8 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 **Serialización**
 - [x] save()
 - [x] load()
-- [ ] exportWeights()
-- [ ] importWeights()
+- [x] exportWeights()
+- [x] importWeights()
 
 ### Fase 3 — Biblioteca Neural · 🟡
 *Agregar más bloques.*

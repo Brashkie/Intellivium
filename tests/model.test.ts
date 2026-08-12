@@ -268,4 +268,67 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
       expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
     }
   });
+
+  it("exportWeights/importWeights transfiere pesos entre modelos iguales", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const trained = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    await trained.train(X, y, { epochs: 800, lr: 0.05, optimizer: "adam", loss: "bce" });
+
+    // modelo nuevo (misma arquitectura, init distinto) recibe los pesos
+    const fresh = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")], 999);
+    fresh.importWeights(JSON.parse(JSON.stringify(trained.exportWeights())));
+
+    const a = trained.predict(X).toArray();
+    const b = fresh.predict(X).toArray();
+    for (let i = 0; i < a.length; i++) {
+      expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
+    }
+  });
+
+  it("importWeights lanza si la arquitectura no coincide", async () => {
+    const a = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const b = new Model([dense(2, 4, "tanh"), dense(4, 1, "sigmoid")]);
+    expect(() => b.importWeights(a.exportWeights())).toThrow();
+  });
+
+  it("importWeights lanza si el número de capas no coincide", async () => {
+    const a = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const b = new Model([dense(2, 8, "tanh"), dense(8, 4, "relu"), dense(4, 1, "sigmoid")]);
+    // b tiene 3 capas, a exporta 2 -> error de conteo
+    expect(() => b.importWeights(a.exportWeights())).toThrow(/capas/);
+  });
+
+  it("importWeights lanza si el tipo de capa no coincide", async () => {
+    const a = new Model([dense(2, 8, "tanh"), layerNorm(8), dense(8, 1, "sigmoid")]);
+    const b = new Model([dense(2, 8, "tanh"), dense(8, 8, "relu"), dense(8, 1, "sigmoid")]);
+    // misma cantidad (3) pero capa 1 es layernorm vs dense
+    expect(() => b.importWeights(a.exportWeights())).toThrow(/layernorm|dense/);
+  });
+
+  it("exportWeights/importWeights transfiere una capa BatchNorm", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const trained = new Model([dense(2, 8, "relu"), batchNorm(8), dense(8, 1, "sigmoid")]);
+    await trained.train(X, y, { epochs: 600, lr: 0.03, optimizer: "adam", loss: "bce" });
+
+    const fresh = new Model([dense(2, 8, "relu"), batchNorm(8), dense(8, 1, "sigmoid")], 123);
+    fresh.importWeights(JSON.parse(JSON.stringify(trained.exportWeights())));
+
+    const a = trained.predict(X).toArray();
+    const b = fresh.predict(X).toArray();
+    for (let i = 0; i < a.length; i++) {
+      expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
+    }
+  });
 });

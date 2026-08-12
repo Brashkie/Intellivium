@@ -7,10 +7,22 @@ export interface Batch {
 }
 
 /**
+ * Interfaz de dataset. Cualquier fuente de datos (en memoria, generada,
+ * perezosa, leída de disco…) que exponga `length` y `get(i)` sirve como
+ * dataset para {@link DataLoader}.
+ */
+export interface Dataset {
+  /** Número de muestras. */
+  readonly length: number;
+  /** Devuelve la muestra `index` como (x, y), cada uno un arreglo plano. */
+  get(index: number): { x: number[]; y: number[] };
+}
+
+/**
  * Dataset en memoria respaldado por dos tensores alineados por filas.
  * Es la base para {@link DataLoader} y para dividir en train/validación.
  */
-export class TensorDataset {
+export class TensorDataset implements Dataset {
   constructor(
     public readonly x: Tensor,
     public readonly y: Tensor,
@@ -22,6 +34,13 @@ export class TensorDataset {
 
   get length(): number {
     return this.x.rows;
+  }
+
+  /** Devuelve la muestra `index` como (x, y) planos. */
+  get(index: number): { x: number[]; y: number[] } {
+    const x = Array.from(this.x.data.subarray(index * this.x.cols, (index + 1) * this.x.cols));
+    const y = Array.from(this.y.data.subarray(index * this.y.cols, (index + 1) * this.y.cols));
+    return { x, y };
   }
 
   /** Devuelve un subconjunto con las filas indicadas (en ese orden). */
@@ -61,10 +80,10 @@ export class TensorDataset {
   }
 }
 
-/** Itera un {@link TensorDataset} en lotes, opcionalmente barajado. */
+/** Itera cualquier {@link Dataset} en lotes, opcionalmente barajado. */
 export class DataLoader implements Iterable<Batch> {
   constructor(
-    private readonly dataset: TensorDataset,
+    private readonly dataset: Dataset,
     private readonly options: { batchSize?: number; shuffle?: boolean; seed?: number } = {},
   ) {}
 
@@ -82,8 +101,20 @@ export class DataLoader implements Iterable<Batch> {
     }
     for (let start = 0; start < idx.length; start += bs) {
       const slice = idx.slice(start, start + bs);
-      const sub = this.dataset.select(slice);
-      yield { x: sub.x, y: sub.y };
+      const first = this.dataset.get(slice[0]);
+      const xCols = first.x.length;
+      const yCols = first.y.length;
+      const xd = new Float64Array(slice.length * xCols);
+      const yd = new Float64Array(slice.length * yCols);
+      slice.forEach((src, row) => {
+        const sample = this.dataset.get(src);
+        xd.set(sample.x, row * xCols);
+        yd.set(sample.y, row * yCols);
+      });
+      yield {
+        x: new Tensor(xd, slice.length, xCols),
+        y: new Tensor(yd, slice.length, yCols),
+      };
     }
   }
 }
