@@ -10,6 +10,8 @@ export interface NativeLayerSpec {
   activation?: string;
   p?: number;
   features?: number;
+  vocab?: number;
+  dim?: number;
 }
 
 export interface NativeTrainConfig {
@@ -90,6 +92,7 @@ export interface NativeModelInstance {
     runningMean: Float64Array,
     runningVar: Float64Array,
   ): void;
+  setEmbeddingTable(index: number, vocab: number, dim: number, table: Float64Array): void;
   readonly outputDim: number;
 }
 

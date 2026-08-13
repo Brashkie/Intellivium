@@ -210,4 +210,70 @@ describe("Tensor", () => {
     expect(a.equals(tensor([[1, 2.1]]))).toBe(false);
     expect(a.equals(tensor([[1, 2, 3]]))).toBe(false);
   });
+
+  it("clip limita al rango", () => {
+    expect(
+      tensor([[-5, 0, 5, 10]])
+        .clip(0, 6)
+        .toArray(),
+    ).toEqual([[0, 0, 5, 6]]);
+  });
+
+  it("concatRows y concatCols", () => {
+    const a = tensor([[1, 2]]);
+    const b = tensor([
+      [3, 4],
+      [5, 6],
+    ]);
+    expect(Tensor.concatRows([a, b]).toArray()).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ]);
+    const c = tensor([[1], [2]]);
+    const d = tensor([
+      [3, 4],
+      [5, 6],
+    ]);
+    expect(Tensor.concatCols([c, d]).toArray()).toEqual([
+      [1, 3, 4],
+      [2, 5, 6],
+    ]);
+    expect(() => Tensor.concatRows([a, c])).toThrow();
+    expect(() => Tensor.concatCols([a, c])).toThrow();
+    expect(() => Tensor.concatRows([])).toThrow();
+    expect(() => Tensor.concatCols([])).toThrow();
+  });
+
+  it("stack apila filas", () => {
+    expect(
+      Tensor.stack([
+        [1, 2],
+        [3, 4],
+      ]).shape,
+    ).toEqual([2, 2]);
+  });
+
+  it("sumAxis y meanAxis", () => {
+    const a = tensor([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    expect(a.sumAxis(0).toArray()).toEqual([[5, 7, 9]]);
+    expect(a.sumAxis(1).toArray()).toEqual([[6], [15]]);
+    expect(a.meanAxis(0).toArray()).toEqual([[2.5, 3.5, 4.5]]);
+    expect(a.meanAxis(1).toArray()).toEqual([[2], [5]]);
+    // eje sin elementos -> divisor 0 (rama de guarda)
+    expect(tensor([]).meanAxis(0).shape).toEqual([1, 0]);
+  });
+
+  it("softmaxRows suma 1 por fila", () => {
+    const s = tensor([
+      [1, 2, 3],
+      [1, 1, 1],
+    ]).softmaxRows();
+    for (const row of s.toArray()) {
+      expect(Math.abs(row.reduce((x, y) => x + y, 0) - 1)).toBeLessThan(1e-9);
+    }
+  });
 });

@@ -34,7 +34,14 @@ export interface BatchNormSpec {
   features: number;
 }
 
-export type LayerSpec = DenseSpec | DropoutSpec | LayerNormSpec | BatchNormSpec;
+/** Embedding: tabla entrenable (vocab, dim). Índices -> vectores. */
+export interface EmbeddingSpec {
+  kind: "embedding";
+  vocab: number;
+  dim: number;
+}
+
+export type LayerSpec = DenseSpec | DropoutSpec | LayerNormSpec | BatchNormSpec | EmbeddingSpec;
 
 /** Define una capa densa: dense(entradas, salidas, activacion). */
 export function dense(
@@ -58,4 +65,10 @@ export function layerNorm(features: number): LayerNormSpec {
 /** Batch Normalization sobre `features` columnas (running stats, modo train/eval). */
 export function batchNorm(features: number): BatchNormSpec {
   return { kind: "batchnorm", features };
+}
+
+/** Define una capa de Embedding: embedding(vocab, dim). Entrada (batch, L) de
+ * índices -> salida (batch, L*dim). */
+export function embedding(vocab: number, dim: number): EmbeddingSpec {
+  return { kind: "embedding", vocab, dim };
 }

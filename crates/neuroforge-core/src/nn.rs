@@ -270,6 +270,29 @@ impl BatchNorm {
     }
 }
 
+/// Capa de Embedding: tabla entrenable (vocab, dim). Mapea índices enteros
+/// (pasados como f32) a vectores densos. Entrada (batch, L) -> salida (batch, L*dim).
+pub struct Embedding {
+    pub table: Array2<f32>, // (vocab, dim)
+    mt: Array2<f32>,
+    vt: Array2<f32>,
+}
+
+impl Embedding {
+    pub fn new(vocab: usize, dim: usize, rng: &mut Rng) -> Self {
+        let table = Array2::from_shape_fn((vocab, dim), |_| rng.normal() * 0.1);
+        Embedding {
+            table,
+            mt: Array2::zeros((vocab, dim)),
+            vt: Array2::zeros((vocab, dim)),
+        }
+    }
+
+    pub fn dim(&self) -> usize {
+        self.table.ncols()
+    }
+}
+
 /// Una capa del modelo secuencial.
 pub enum Layer {
     Dense(Dense),
@@ -277,6 +300,7 @@ pub enum Layer {
     Dropout(f32),
     LayerNorm(LayerNorm),
     BatchNorm(BatchNorm),
+    Embedding(Embedding),
 }
 
 impl Layer {
@@ -292,6 +316,9 @@ impl Layer {
     pub fn batch_norm(features: usize) -> Layer {
         Layer::BatchNorm(BatchNorm::new(features))
     }
+    pub fn embedding(vocab: usize, dim: usize, rng: &mut Rng) -> Layer {
+        Layer::Embedding(Embedding::new(vocab, dim, rng))
+    }
 
     pub fn kind(&self) -> &'static str {
         match self {
@@ -299,6 +326,7 @@ impl Layer {
             Layer::Dropout(_) => "dropout",
             Layer::LayerNorm(_) => "layernorm",
             Layer::BatchNorm(_) => "batchnorm",
+            Layer::Embedding(_) => "embedding",
         }
     }
 
@@ -332,6 +360,10 @@ impl Layer {
                 let gb = &grads[ids[1]] * scale;
                 apply_param(&mut bn.gamma, &mut bn.mg, &mut bn.vg, &gg, opt, lr, t);
                 apply_param(&mut bn.beta, &mut bn.mb, &mut bn.vb, &gb, opt, lr, t);
+            }
+            Layer::Embedding(emb) => {
+                let gt = &grads[ids[0]] * scale;
+                apply_param(&mut emb.table, &mut emb.mt, &mut emb.vt, &gt, opt, lr, t);
             }
         }
     }
@@ -426,6 +458,22 @@ impl Model {
         match &self.layers[i] {
             Layer::BatchNorm(bn) => Some(bn),
             _ => None,
+        }
+    }
+
+    pub fn embedding_at(&self, i: usize) -> Option<&Embedding> {
+        match &self.layers[i] {
+            Layer::Embedding(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    /// Reemplaza la tabla de una capa Embedding (para load).
+    pub fn set_embedding_table(&mut self, i: usize, table: Array2<f32>) {
+        if let Layer::Embedding(e) = &mut self.layers[i] {
+            e.mt = Array2::zeros(table.raw_dim());
+            e.vt = Array2::zeros(table.raw_dim());
+            e.table = table;
         }
     }
 
@@ -544,6 +592,11 @@ impl Model {
                     }
                     params.push(vec![gid, bid]);
                 }
+                Layer::Embedding(emb) => {
+                    let tid = tape.leaf(emb.table.clone());
+                    cur = tape.embedding(cur, tid, emb.dim());
+                    params.push(vec![tid]);
+                }
             }
         }
         (cur, params, bn_updates)
@@ -637,6 +690,7 @@ impl Model {
                     bn.running_mean.clone(),
                     bn.running_var.clone(),
                 ],
+                Layer::Embedding(e) => vec![e.table.clone()],
             })
             .collect()
     }
@@ -658,6 +712,9 @@ impl Model {
                     bn.beta = params[1].clone();
                     bn.running_mean = params[2].clone();
                     bn.running_var = params[3].clone();
+                }
+                Layer::Embedding(e) => {
+                    e.table = params[0].clone();
                 }
             }
         }
@@ -1154,5 +1211,32 @@ mod tests {
         // predict (eval) es determinista y finito
         let p = model.predict(&x);
         assert!(p.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn embedding_aprende_por_indice() {
+        // 4 índices (0..3), cada uno debe mapear a una salida distinta.
+        let mut rng = Rng::new(9);
+        let mut model = Model::new(vec![
+            Layer::embedding(4, 8, &mut rng), // (batch,1) -> (batch,8)
+            Layer::dense(8, 1, Activation::Sigmoid, &mut rng),
+        ]);
+        // índices como f32, columna única
+        let x = array![[0.0], [1.0], [2.0], [3.0]];
+        let y = array![[0.0], [1.0], [1.0], [0.0]]; // patrón arbitrario por índice
+        let mut cfg = TrainConfig::adam(1500, 0.05);
+        cfg.loss = Loss::Bce;
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            *hist.last().unwrap() < 0.05,
+            "Embedding no aprendió: {}",
+            hist.last().unwrap()
+        );
+
+        // salida (batch, 1) y predicciones correctas por índice
+        let pred = model.predict(&x);
+        assert_eq!(pred.ncols(), 1);
+        assert!(pred[[0, 0]] < 0.5 && pred[[3, 0]] < 0.5);
+        assert!(pred[[1, 0]] > 0.5 && pred[[2, 0]] > 0.5);
     }
 }

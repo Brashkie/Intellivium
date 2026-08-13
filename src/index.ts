@@ -9,6 +9,7 @@ export {
   dropout,
   layerNorm,
   batchNorm,
+  embedding,
   type ActivationName,
   type LayerSpec,
 } from "./layers.js";
@@ -27,7 +28,7 @@ export {
 } from "./model.js";
 
 import { DataLoader, TensorDataset } from "./data.js";
-import { batchNorm, dense, dropout, layerNorm } from "./layers.js";
+import { batchNorm, dense, dropout, embedding, layerNorm } from "./layers.js";
 import { Model } from "./model.js";
 import { Tensor, tensor } from "./tensor.js";
 
@@ -37,6 +38,7 @@ export default {
   dropout,
   layerNorm,
   batchNorm,
+  embedding,
   Model,
   Tensor,
   TensorDataset,

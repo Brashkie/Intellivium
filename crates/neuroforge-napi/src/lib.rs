@@ -20,8 +20,12 @@ pub struct LayerSpec {
     pub activation: Option<String>,
     /// probabilidad de dropout
     pub p: Option<f64>,
-    /// features de layernorm
+    /// features de layernorm/batchnorm
     pub features: Option<u32>,
+    /// embedding: tamaño del vocabulario
+    pub vocab: Option<u32>,
+    /// embedding: dimensión del vector
+    pub dim: Option<u32>,
 }
 
 /// Config de entrenamiento recibida desde JS.
@@ -136,6 +140,16 @@ impl JsModel {
                         .features
                         .ok_or_else(|| Error::from_reason("batchnorm requiere 'features'"))?;
                     built.push(Layer::batch_norm(f as usize));
+                }
+                "embedding" => {
+                    let v = l
+                        .vocab
+                        .ok_or_else(|| Error::from_reason("embedding requiere 'vocab'"))?;
+                    let d = l
+                        .dim
+                        .ok_or_else(|| Error::from_reason("embedding requiere 'dim'"))?;
+                    built.push(Layer::embedding(v as usize, d as usize, &mut rng));
+                    out_dim = d;
                 }
                 _ => {
                     let inp = l
@@ -298,6 +312,19 @@ impl JsModel {
                         running_mean: flat(&bn.running_mean),
                         running_var: flat(&bn.running_var),
                     }
+                } else if let Some(emb) = self.inner.embedding_at(i) {
+                    LayerState {
+                        kind: "embedding".to_string(),
+                        input_dim: emb.table.nrows() as u32, // vocab
+                        output_dim: emb.table.ncols() as u32, // dim
+                        activation: "linear".to_string(),
+                        weights: flat(&emb.table),
+                        bias: empty(),
+                        p: 0.0,
+                        features: 0,
+                        running_mean: empty(),
+                        running_var: empty(),
+                    }
                 } else {
                     LayerState {
                         kind: "dropout".to_string(),
@@ -360,6 +387,25 @@ impl JsModel {
         let rm = to_array2(&running_mean, 1, feats)?;
         let rv = to_array2(&running_var, 1, feats)?;
         self.inner.set_batchnorm_weights(i, g, b, rm, rv);
+        Ok(())
+    }
+
+    /// Reemplaza la tabla de una capa Embedding (para load). `table` aplanada
+    /// row-major (vocab * dim).
+    #[napi]
+    pub fn set_embedding_table(
+        &mut self,
+        index: u32,
+        vocab: u32,
+        dim: u32,
+        table: Float64Array,
+    ) -> Result<()> {
+        let i = index as usize;
+        if self.inner.embedding_at(i).is_none() {
+            return Ok(());
+        }
+        let t = to_array2(&table, vocab as usize, dim as usize)?;
+        self.inner.set_embedding_table(i, t);
         Ok(())
     }
 }

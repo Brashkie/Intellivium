@@ -5,7 +5,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/),
 versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.10.0] - 2026-08-12
+### Added
+- **Fase 3 — Embedding** (`embedding(vocab, dim)`): tabla entrenable que mapea
+  índices (pasados como f32) a vectores densos. Entrada (batch, L) -> salida
+  (batch, L*dim). Backward por scatter-add sobre las filas usadas; save/load
+  serializan la tabla.
+- **Fase 1 — más operaciones de `Tensor`**: `clip`, `concatRows`, `concatCols`,
+  `stack`, `sumAxis`, `meanAxis`, `softmaxRows`.
+- Tests de Embedding (Rust y TS) y de las nuevas ops de Tensor (100% cobertura).
+### Notes
+- `Flatten`/`Reshape` no se implementan como capas todavía: en el motor 2D
+  serían identidad; cobrarán sentido con el tensor N-D.
 ### Tests
+- Cobertura de la rama Embedding de `importWeights` (cierra el hueco en `model.ts`).
 - Cobertura completa de `importWeights`: casos de nº de capas distinto, tipo de
   capa distinto, y transferencia de una capa BatchNorm (cierra el hueco de
   cobertura en `model.ts`).

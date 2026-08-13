@@ -27,6 +27,7 @@ enum Op {
     Dropout(usize),                      // input (la máscara se guarda en Tape.masks)
     LayerNorm(usize, usize, usize, f32), // input, gamma, beta, eps
     BatchNorm(usize, usize, usize, f32), // input, gamma, beta, eps (stats por columna)
+    Embedding(usize, usize, usize),      // indices_node, table_node, dim
 }
 
 const EPS: f32 = 1e-7;
@@ -275,6 +276,23 @@ impl Tape {
         self.push(out, Op::BatchNorm(a, gamma, beta, eps))
     }
 
+    /// Embedding lookup. `idx` es un nodo con índices (batch, L) —valores f32 que
+    /// se truncan a usize—, `table` es (vocab, dim). Salida: (batch, L*dim).
+    pub fn embedding(&mut self, idx: usize, table: usize, dim: usize) -> usize {
+        let (rows, l) = (self.values[idx].nrows(), self.values[idx].ncols());
+        let vocab = self.values[table].nrows();
+        let mut out = Array2::<f32>::zeros((rows, l * dim));
+        for r in 0..rows {
+            for li in 0..l {
+                let e = (self.values[idx][[r, li]] as usize).min(vocab.saturating_sub(1));
+                for d in 0..dim {
+                    out[[r, li * dim + d]] = self.values[table][[e, d]];
+                }
+            }
+        }
+        self.push(out, Op::Embedding(idx, table, dim))
+    }
+
     /// Backprop desde `out` (típicamente la loss escalar). Devuelve el gradiente
     /// de CADA nodo de la cinta, indexado por su id.
     pub fn backward(&self, out: usize) -> Vec<Array2<f32>> {
@@ -501,6 +519,23 @@ impl Tape {
                     grads[a] = &grads[a] + &dx;
                     grads[gamma] = &grads[gamma] + &dgamma;
                     grads[beta] = &grads[beta] + &dbeta;
+                }
+                Op::Embedding(idx, table, dim) => {
+                    // Scatter-add del gradiente hacia las filas de la tabla usadas.
+                    let (rows, l) = (self.values[idx].nrows(), self.values[idx].ncols());
+                    let vocab = self.values[table].nrows();
+                    let mut dtable = Array2::<f32>::zeros((vocab, dim));
+                    for r in 0..rows {
+                        for li in 0..l {
+                            let e =
+                                (self.values[idx][[r, li]] as usize).min(vocab.saturating_sub(1));
+                            for d in 0..dim {
+                                dtable[[e, d]] += g[[r, li * dim + d]];
+                            }
+                        }
+                    }
+                    grads[table] = &grads[table] + &dtable;
+                    // idx no es diferenciable: su gradiente queda en cero.
                 }
             }
         }

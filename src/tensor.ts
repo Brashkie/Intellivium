@@ -249,6 +249,91 @@ export class Tensor {
     }
     return true;
   }
+
+  /** Limita cada elemento al rango [lo, hi]. */
+  clip(lo: number, hi: number): Tensor {
+    return this.map((v) => (v < lo ? lo : v > hi ? hi : v));
+  }
+
+  /** Concatena por filas (axis 0). Requiere el mismo número de columnas. */
+  static concatRows(tensors: Tensor[]): Tensor {
+    if (tensors.length === 0) throw new Error("concatRows: lista vacía");
+    const cols = tensors[0].cols;
+    let rows = 0;
+    for (const t of tensors) {
+      if (t.cols !== cols) throw new Error("concatRows: columnas distintas");
+      rows += t.rows;
+    }
+    const out = new Float64Array(rows * cols);
+    let off = 0;
+    for (const t of tensors) {
+      out.set(t.data, off);
+      off += t.data.length;
+    }
+    return new Tensor(out, rows, cols);
+  }
+
+  /** Concatena por columnas (axis 1). Requiere el mismo número de filas. */
+  static concatCols(tensors: Tensor[]): Tensor {
+    if (tensors.length === 0) throw new Error("concatCols: lista vacía");
+    const rows = tensors[0].rows;
+    let cols = 0;
+    for (const t of tensors) {
+      if (t.rows !== rows) throw new Error("concatCols: filas distintas");
+      cols += t.cols;
+    }
+    const out = new Float64Array(rows * cols);
+    for (let r = 0; r < rows; r++) {
+      let c0 = 0;
+      for (const t of tensors) {
+        for (let c = 0; c < t.cols; c++) out[r * cols + c0 + c] = t.data[r * t.cols + c];
+        c0 += t.cols;
+      }
+    }
+    return new Tensor(out, rows, cols);
+  }
+
+  /** Apila filas de igual longitud en un tensor (n, len). */
+  static stack(rows: number[][]): Tensor {
+    return Tensor.from(rows);
+  }
+
+  /** Suma por eje: axis 0 -> (1, cols); axis 1 -> (rows, 1). */
+  sumAxis(axis: 0 | 1): Tensor {
+    if (axis === 0) {
+      const out = new Float64Array(this.cols);
+      for (let i = 0; i < this.rows; i++)
+        for (let j = 0; j < this.cols; j++) out[j] += this.data[i * this.cols + j];
+      return new Tensor(out, 1, this.cols);
+    }
+    const out = new Float64Array(this.rows);
+    for (let i = 0; i < this.rows; i++)
+      for (let j = 0; j < this.cols; j++) out[i] += this.data[i * this.cols + j];
+    return new Tensor(out, this.rows, 1);
+  }
+
+  /** Media por eje (ver {@link sumAxis}). */
+  meanAxis(axis: 0 | 1): Tensor {
+    const denom = axis === 0 ? this.rows : this.cols;
+    return this.sumAxis(axis).scale(denom === 0 ? 0 : 1 / denom);
+  }
+
+  /** Softmax por filas (numéricamente estable). Útil para leer probabilidades. */
+  softmaxRows(): Tensor {
+    const out = new Float64Array(this.rows * this.cols);
+    for (let i = 0; i < this.rows; i++) {
+      let m = Number.NEGATIVE_INFINITY;
+      for (let j = 0; j < this.cols; j++) m = Math.max(m, this.data[i * this.cols + j]);
+      let sum = 0;
+      for (let j = 0; j < this.cols; j++) {
+        const e = Math.exp(this.data[i * this.cols + j] - m);
+        out[i * this.cols + j] = e;
+        sum += e;
+      }
+      for (let j = 0; j < this.cols; j++) out[i * this.cols + j] /= sum;
+    }
+    return new Tensor(out, this.rows, this.cols);
+  }
 }
 
 /** Helper: crea un tensor a partir de un arreglo 2D. */

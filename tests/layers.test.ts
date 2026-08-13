@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchNorm, dense, dropout, layerNorm } from "../src/layers.js";
+import { batchNorm, dense, dropout, embedding, layerNorm } from "../src/layers.js";
 
 describe("dense", () => {
   it("crea una spec con la activación dada", () => {
@@ -36,5 +36,11 @@ describe("layerNorm", () => {
 describe("batchNorm", () => {
   it("crea una spec de batchnorm", () => {
     expect(batchNorm(8)).toEqual({ kind: "batchnorm", features: 8 });
+  });
+});
+
+describe("embedding", () => {
+  it("crea una spec de embedding", () => {
+    expect(embedding(100, 16)).toEqual({ kind: "embedding", vocab: 100, dim: 16 });
   });
 });

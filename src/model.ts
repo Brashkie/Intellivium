@@ -4,6 +4,7 @@ import {
   batchNorm,
   dense,
   dropout,
+  embedding,
   layerNorm,
 } from "./layers.js";
 import { type NativeModelInstance, getNativeModel } from "./native.js";
@@ -204,6 +205,13 @@ export class Model {
           Float64Array.from(l.runningMean),
           Float64Array.from(l.runningVar),
         );
+      } else if (l.kind === "embedding") {
+        this.native.setEmbeddingTable(
+          i,
+          current[i].inputDim,
+          current[i].outputDim,
+          Float64Array.from(l.weights),
+        );
       }
       // dropout: sin pesos.
     });
@@ -240,6 +248,7 @@ export class Model {
       if (l.kind === "dropout") return dropout(l.p);
       if (l.kind === "layernorm") return layerNorm(l.features);
       if (l.kind === "batchnorm") return batchNorm(l.features);
+      if (l.kind === "embedding") return embedding(l.inputDim, l.outputDim);
       return dense(l.inputDim, l.outputDim, l.activation);
     });
     const model = new Model(specs, seed);
@@ -255,6 +264,8 @@ export class Model {
           Float64Array.from(l.runningMean),
           Float64Array.from(l.runningVar),
         );
+      } else if (l.kind === "embedding") {
+        model.native.setEmbeddingTable(i, l.inputDim, l.outputDim, Float64Array.from(l.weights));
       }
     });
     return model;

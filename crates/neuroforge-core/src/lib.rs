@@ -10,7 +10,7 @@ pub mod rng;
 pub mod tape;
 
 pub use nn::{
-    Activation, BatchNorm, Dense, Layer, LayerNorm, Loss, Model, Optimizer, TrainConfig,
+    Activation, BatchNorm, Dense, Embedding, Layer, LayerNorm, Loss, Model, Optimizer, TrainConfig,
     TrainResult,
 };
 pub use rng::Rng;

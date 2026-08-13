@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TensorDataset } from "../src/data.js";
-import { batchNorm, dense, dropout, layerNorm } from "../src/layers.js";
+import { batchNorm, dense, dropout, embedding, layerNorm } from "../src/layers.js";
 import { Model } from "../src/model.js";
 import { getNativeModel } from "../src/native.js";
 import { tensor } from "../src/tensor.js";
@@ -327,6 +327,42 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
 
     const a = trained.predict(X).toArray();
     const b = fresh.predict(X).toArray();
+    for (let i = 0; i < a.length; i++) {
+      expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
+    }
+  });
+
+  it("Embedding aprende por índice y save/load lo conserva", async () => {
+    const x = tensor([[0], [1], [2], [3]]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const model = new Model([embedding(4, 8), dense(8, 1, "sigmoid")]);
+    const hist = await model.train(x, y, {
+      epochs: 1500,
+      lr: 0.05,
+      optimizer: "adam",
+      loss: "bce",
+    });
+    expect(hist.at(-1) ?? 1).toBeLessThan(0.1);
+
+    const restored = Model.load(JSON.parse(JSON.stringify(model.save())));
+    const a = model.predict(x).toArray();
+    const b = restored.predict(x).toArray();
+    for (let i = 0; i < a.length; i++) {
+      expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
+    }
+  });
+
+  it("exportWeights/importWeights transfiere una capa Embedding", async () => {
+    const x = tensor([[0], [1], [2], [3]]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const trained = new Model([embedding(4, 8), dense(8, 1, "sigmoid")]);
+    await trained.train(x, y, { epochs: 600, lr: 0.05, optimizer: "adam", loss: "bce" });
+
+    const fresh = new Model([embedding(4, 8), dense(8, 1, "sigmoid")], 321);
+    fresh.importWeights(JSON.parse(JSON.stringify(trained.exportWeights())));
+
+    const a = trained.predict(x).toArray();
+    const b = fresh.predict(x).toArray();
     for (let i = 0; i < a.length; i++) {
       expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
     }
