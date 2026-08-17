@@ -38,6 +38,9 @@ export class TensorDataset implements Dataset {
 
   /** Devuelve la muestra `index` como (x, y) planos. */
   get(index: number): { x: number[]; y: number[] } {
+    if (index < 0 || index >= this.length) {
+      throw new Error(`índice ${index} fuera de rango [0, ${this.length})`);
+    }
     const x = Array.from(this.x.data.subarray(index * this.x.cols, (index + 1) * this.x.cols));
     const y = Array.from(this.y.data.subarray(index * this.y.cols, (index + 1) * this.y.cols));
     return { x, y };
@@ -85,7 +88,14 @@ export class DataLoader implements Iterable<Batch> {
   constructor(
     private readonly dataset: Dataset,
     private readonly options: { batchSize?: number; shuffle?: boolean; seed?: number } = {},
-  ) {}
+  ) {
+    if (
+      options.batchSize !== undefined &&
+      (!Number.isInteger(options.batchSize) || options.batchSize < 1)
+    ) {
+      throw new Error(`batchSize debe ser un entero >= 1, recibí ${options.batchSize}`);
+    }
+  }
 
   /** Número de lotes por pasada completa. */
   get length(): number {

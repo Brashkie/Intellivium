@@ -276,4 +276,66 @@ describe("Tensor", () => {
       expect(Math.abs(row.reduce((x, y) => x + y, 0) - 1)).toBeLessThan(1e-9);
     }
   });
+
+  it("constructor valida dimensiones y tamaño del buffer", () => {
+    expect(() => new Tensor(new Float64Array(3), 2, 2)).toThrow();
+    expect(() => new Tensor(new Float64Array(4), -1, 2)).toThrow();
+    expect(() => new Tensor(new Float64Array(4), 2.5, 2)).toThrow();
+  });
+
+  it("at valida el rango", () => {
+    const a = tensor([[1, 2]]);
+    expect(a.at(0, 1)).toBe(2);
+    expect(() => a.at(1, 0)).toThrow();
+    expect(() => a.at(0, 5)).toThrow();
+  });
+
+  it("arange genera un vector columna", () => {
+    expect(Tensor.arange(4).toArray()).toEqual([[0], [1], [2], [3]]);
+  });
+
+  it("fromFlat construye desde buffer plano y valida", () => {
+    expect(Tensor.fromFlat([1, 2, 3, 4], 2, 2).toArray()).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(() => Tensor.fromFlat([1, 2, 3], 2, 2)).toThrow();
+  });
+
+  it("oneHot desde arreglo y desde tensor", () => {
+    expect(Tensor.oneHot([0, 2, 1], 3).toArray()).toEqual([
+      [1, 0, 0],
+      [0, 0, 1],
+      [0, 1, 0],
+    ]);
+    expect(Tensor.oneHot(Tensor.arange(2), 2).toArray()).toEqual([
+      [1, 0],
+      [0, 1],
+    ]);
+    expect(() => Tensor.oneHot([5], 3)).toThrow();
+  });
+
+  it("zipWith combina y valida shapes", () => {
+    const a = tensor([[1, 2]]);
+    const b = tensor([[10, 20]]);
+    expect(a.zipWith(b, (x, y) => x + y).toArray()).toEqual([[11, 22]]);
+    expect(() => a.zipWith(tensor([[1]]), (x, y) => x + y)).toThrow();
+  });
+
+  it("isFinite detecta NaN/Infinity", () => {
+    expect(tensor([[1, 2, 3]]).isFinite()).toBe(true);
+    expect(new Tensor(Float64Array.from([1, Number.NaN]), 1, 2).isFinite()).toBe(false);
+    expect(new Tensor(Float64Array.from([1, Number.POSITIVE_INFINITY]), 1, 2).isFinite()).toBe(
+      false,
+    );
+  });
+
+  it("toFlat devuelve el buffer como arreglo", () => {
+    expect(
+      tensor([
+        [1, 2],
+        [3, 4],
+      ]).toFlat(),
+    ).toEqual([1, 2, 3, 4]);
+  });
 });

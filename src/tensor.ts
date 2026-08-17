@@ -4,7 +4,16 @@ export class Tensor {
     public readonly data: Float64Array,
     public readonly rows: number,
     public readonly cols: number,
-  ) {}
+  ) {
+    if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 0 || cols < 0) {
+      throw new Error(`dimensiones inválidas: (${rows}, ${cols})`);
+    }
+    if (data.length !== rows * cols) {
+      throw new Error(
+        `el buffer tiene ${data.length} elementos pero (${rows}, ${cols}) requiere ${rows * cols}`,
+      );
+    }
+  }
 
   /** Construye un tensor desde un arreglo 2D, validando que sea rectangular. */
   static from(arr: number[][]): Tensor {
@@ -40,8 +49,11 @@ export class Tensor {
     return [this.rows, this.cols];
   }
 
-  /** Elemento (i, j). */
+  /** Elemento (i, j). Valida el rango. */
   at(i: number, j: number): number {
+    if (i < 0 || i >= this.rows || j < 0 || j >= this.cols) {
+      throw new Error(`índice (${i}, ${j}) fuera de rango para (${this.rows}, ${this.cols})`);
+    }
     return this.data[i * this.cols + j];
   }
 
@@ -110,6 +122,38 @@ export class Tensor {
     const t = Tensor.zeros(n, n);
     for (let i = 0; i < n; i++) t.data[i * n + i] = 1;
     return t;
+  }
+
+  /** Vector columna (n, 1) con 0,1,…,n-1. */
+  static arange(n: number): Tensor {
+    const data = new Float64Array(n);
+    for (let i = 0; i < n; i++) data[i] = i;
+    return new Tensor(data, n, 1);
+  }
+
+  /** Construye un tensor (rows, cols) desde un buffer plano row-major. */
+  static fromFlat(flat: ArrayLike<number>, rows: number, cols: number): Tensor {
+    if (flat.length !== rows * cols) {
+      throw new Error(`fromFlat: ${flat.length} elementos no encajan en (${rows}, ${cols})`);
+    }
+    return new Tensor(Float64Array.from(flat), rows, cols);
+  }
+
+  /**
+   * One-hot: convierte índices de clase (enteros 0..classes-1) en una matriz
+   * (n, classes). `indices` puede ser un arreglo o un tensor columna.
+   */
+  static oneHot(indices: number[] | Tensor, classes: number): Tensor {
+    const idx = indices instanceof Tensor ? Array.from(indices.data) : indices;
+    const out = new Float64Array(idx.length * classes);
+    idx.forEach((c, i) => {
+      const k = Math.round(c);
+      if (k < 0 || k >= classes) {
+        throw new Error(`oneHot: índice ${k} fuera de [0, ${classes})`);
+      }
+      out[i * classes + k] = 1;
+    });
+    return new Tensor(out, idx.length, classes);
   }
 
   // ---- Operaciones elemento a elemento ----
@@ -333,6 +377,31 @@ export class Tensor {
       for (let j = 0; j < this.cols; j++) out[i * this.cols + j] /= sum;
     }
     return new Tensor(out, this.rows, this.cols);
+  }
+
+  /** Combina dos tensores del mismo shape con una función binaria. */
+  zipWith(other: Tensor, fn: (a: number, b: number) => number): Tensor {
+    if (other.rows !== this.rows || other.cols !== this.cols) {
+      throw new Error(
+        `zipWith: shapes distintos (${this.rows}, ${this.cols}) vs (${other.rows}, ${other.cols})`,
+      );
+    }
+    const out = new Float64Array(this.data.length);
+    for (let i = 0; i < this.data.length; i++) out[i] = fn(this.data[i], other.data[i]);
+    return new Tensor(out, this.rows, this.cols);
+  }
+
+  /** true si todos los elementos son finitos (ni NaN ni ±Infinity). */
+  isFinite(): boolean {
+    for (let i = 0; i < this.data.length; i++) {
+      if (!Number.isFinite(this.data[i])) return false;
+    }
+    return true;
+  }
+
+  /** Copia del buffer plano row-major. */
+  toFlat(): number[] {
+    return Array.from(this.data);
   }
 }
 

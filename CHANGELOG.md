@@ -6,6 +6,18 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-08-13
+### Added
+- **Fase 1 — más utilidades de `Tensor`**: `Tensor.arange`, `Tensor.fromFlat`,
+  `Tensor.oneHot`, `zipWith`, `isFinite`, `toFlat`.
+- **Fase 1/2 — validaciones robustas**: el constructor de `Tensor` valida
+  dimensiones y tamaño del buffer; `at()` valida el rango; `DataLoader` rechaza
+  `batchSize` inválido; `TensorDataset.get()` valida el índice.
+- Tests de todo lo anterior (`tensor.ts` y `data.ts` al 100% de cobertura).
+### Notes
+- `Data types` (sistema de dtypes) sigue pendiente a propósito: es un refactor
+  del motor (f32 → multi-dtype con dispatch), no un patch.
+
 ## [0.10.0] - 2026-08-12
 ### Added
 - **Fase 3 — Embedding** (`embedding(vocab, dim)`): tabla entrenable que mapea

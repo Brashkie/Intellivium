@@ -127,3 +127,16 @@ describe("Custom Dataset", () => {
     expect(ds.get(3)).toEqual({ x: [3, 6], y: [1] });
   });
 });
+describe("validaciones Fase 2", () => {
+  it("DataLoader rechaza batchSize inválido", () => {
+    expect(() => new DataLoader(makeDataset(4), { batchSize: 0 })).toThrow();
+    expect(() => new DataLoader(makeDataset(4), { batchSize: -2 })).toThrow();
+    expect(() => new DataLoader(makeDataset(4), { batchSize: 1.5 })).toThrow();
+  });
+
+  it("TensorDataset.get valida el rango", () => {
+    const ds = makeDataset(3);
+    expect(() => ds.get(3)).toThrow();
+    expect(() => ds.get(-1)).toThrow();
+  });
+});
