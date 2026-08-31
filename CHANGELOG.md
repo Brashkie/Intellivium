@@ -6,6 +6,20 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-16
+### Performance
+- **Backward optimizado (Fase 1)**: acumulación de gradientes **in-place** (`+=`)
+  en vez de reasignar un array nuevo por operación, y `std::mem::take` del
+  gradiente entrante en vez de clonarlo. Elimina ~2 asignaciones de tensor por
+  operación en el bucle más caliente (corre en cada paso de entrenamiento).
+- **Cinta con capacidad reservada**: `Tape::with_capacity` evita realocaciones
+  de los `Vec` internos; el `Model` la usa dimensionada por nº de capas.
+- La corrección se mantiene exacta (verificada por el gradient-check numérico
+  contra diferencias finitas).
+### Added
+- `examples/bench.rs`: micro-benchmark reproducible del bucle de entrenamiento
+  (`cargo run --release -p neuroforge-core --example bench`).
+
 ## [0.10.1] - 2026-08-13
 ### Added
 - **Fase 1 — más utilidades de `Tensor`**: `Tensor.arange`, `Tensor.fromFlat`,

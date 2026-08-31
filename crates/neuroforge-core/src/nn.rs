@@ -603,7 +603,7 @@ impl Model {
     }
 
     pub fn predict(&self, x: &Array2<f32>) -> Array2<f32> {
-        let mut tape = Tape::new();
+        let mut tape = Tape::with_capacity(self.layers.len() * 6 + 4);
         let xid = tape.leaf(x.clone());
         let (out, _, _) = self.forward_tape(&mut tape, xid, false, None);
         tape.value(out).clone()
@@ -621,7 +621,7 @@ impl Model {
 
     /// Un paso de entrenamiento sobre un batch. Aplica clipping global si procede.
     fn step(&mut self, xb: &Array2<f32>, yb: &Array2<f32>, cfg: &TrainConfig, lr: f32) -> f32 {
-        let mut tape = Tape::new();
+        let mut tape = Tape::with_capacity(self.layers.len() * 6 + 4);
         let xid = tape.leaf(xb.clone());
         let yid = tape.leaf(yb.clone());
 
@@ -668,7 +668,7 @@ impl Model {
 
     /// Calcula la loss sobre un conjunto sin actualizar pesos (modo eval).
     pub fn evaluate(&self, x: &Array2<f32>, y: &Array2<f32>, loss: Loss) -> f32 {
-        let mut tape = Tape::new();
+        let mut tape = Tape::with_capacity(self.layers.len() * 6 + 4);
         let xid = tape.leaf(x.clone());
         let yid = tape.leaf(y.clone());
         let (out, _, _) = self.forward_tape(&mut tape, xid, false, None);

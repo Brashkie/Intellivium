@@ -62,6 +62,15 @@ impl Tape {
         }
     }
 
+    /// Crea una cinta reservando espacio para ~`n` nodos (evita realocaciones).
+    pub fn with_capacity(n: usize) -> Self {
+        Tape {
+            values: Vec::with_capacity(n),
+            ops: Vec::with_capacity(n),
+            masks: std::collections::HashMap::new(),
+        }
+    }
+
     fn push(&mut self, value: Array2<f32>, op: Op) -> usize {
         let id = self.values.len();
         self.values.push(value);
@@ -304,37 +313,43 @@ impl Tape {
         grads[out].fill(1.0);
 
         for i in (0..self.ops.len()).rev() {
-            let g = grads[i].clone();
+            // Los leaves acumulan el gradiente final; no se deben vaciar.
+            if matches!(self.ops[i], Op::Leaf) {
+                continue;
+            }
+            // `take` evita clonar el gradiente entrante (se reemplaza por vacío;
+            // el nodo ya no se vuelve a leer en el recorrido inverso).
+            let g = std::mem::take(&mut grads[i]);
             match self.ops[i] {
                 Op::Leaf => {}
                 Op::Add(a, b) => {
-                    grads[a] = &grads[a] + &g;
+                    grads[a] += &g;
                     if self.values[b].shape()[0] == 1 && g.shape()[0] != 1 {
                         let summed = g.sum_axis(Axis(0)).insert_axis(Axis(0));
-                        grads[b] = &grads[b] + &summed;
+                        grads[b] += &summed;
                     } else {
-                        grads[b] = &grads[b] + &g;
+                        grads[b] += &g;
                     }
                 }
                 Op::MatMul(a, b) => {
                     let da = g.dot(&self.values[b].t());
                     let db = self.values[a].t().dot(&g);
-                    grads[a] = &grads[a] + &da;
-                    grads[b] = &grads[b] + &db;
+                    grads[a] += &da;
+                    grads[b] += &db;
                 }
                 Op::Relu(a) => {
                     let mask = self.values[a].mapv(|x| if x > 0.0 { 1.0 } else { 0.0 });
-                    grads[a] = &grads[a] + &(&g * &mask);
+                    grads[a] += &(&g * &mask);
                 }
                 Op::Sigmoid(a) => {
                     let s = &self.values[i];
                     let d = s.mapv(|y| y * (1.0 - y));
-                    grads[a] = &grads[a] + &(&g * &d);
+                    grads[a] += &(&g * &d);
                 }
                 Op::Tanh(a) => {
                     let t = &self.values[i];
                     let d = t.mapv(|y| 1.0 - y * y);
-                    grads[a] = &grads[a] + &(&g * &d);
+                    grads[a] += &(&g * &d);
                 }
                 Op::Softmax(a) => {
                     // dz = s ⊙ (g - rowsum(g ⊙ s))
@@ -349,16 +364,16 @@ impl Tape {
                             dz[[r, c]] = s[[r, c]] * (g[[r, c]] - dot);
                         }
                     }
-                    grads[a] = &grads[a] + &dz;
+                    grads[a] += &dz;
                 }
                 Op::LeakyRelu(a) => {
                     let d = self.values[a].mapv(|x| if x > 0.0 { 1.0 } else { LEAKY_ALPHA });
-                    grads[a] = &grads[a] + &(&g * &d);
+                    grads[a] += &(&g * &d);
                 }
                 Op::Elu(a) => {
                     // x>0 -> 1 ; x<=0 -> e^x
                     let d = self.values[a].mapv(|x| if x > 0.0 { 1.0 } else { x.exp() });
-                    grads[a] = &grads[a] + &(&g * &d);
+                    grads[a] += &(&g * &d);
                 }
                 Op::Gelu(a) => {
                     // f = x*s(cx) ; f' = s(cx) + x*c*s(cx)*(1-s(cx))
@@ -366,17 +381,17 @@ impl Tape {
                         let s = sigmoid(GELU_C * x);
                         s + x * GELU_C * s * (1.0 - s)
                     });
-                    grads[a] = &grads[a] + &(&g * &d);
+                    grads[a] += &(&g * &d);
                 }
                 Op::Mse(p, t) => {
-                    let gv = grads[i][[0, 0]];
+                    let gv = g[[0, 0]];
                     let diff = &self.values[p] - &self.values[t];
                     let n = diff.len() as f32;
                     let dp = diff.mapv(|d| d * 2.0 / n * gv);
-                    grads[p] = &grads[p] + &dp;
+                    grads[p] += &dp;
                 }
                 Op::Bce(p, t) => {
-                    let gv = grads[i][[0, 0]];
+                    let gv = g[[0, 0]];
                     let pv = &self.values[p];
                     let tv = &self.values[t];
                     let n = pv.len() as f32;
@@ -384,10 +399,10 @@ impl Tape {
                         let pc = pi.clamp(EPS, 1.0 - EPS);
                         (pc - ti) / (pc * (1.0 - pc)) / n * gv
                     });
-                    grads[p] = &grads[p] + &dp;
+                    grads[p] += &dp;
                 }
                 Op::Cce(p, t) => {
-                    let gv = grads[i][[0, 0]];
+                    let gv = g[[0, 0]];
                     let pv = &self.values[p];
                     let tv = &self.values[t];
                     let n = pv.nrows() as f32;
@@ -395,10 +410,10 @@ impl Tape {
                         let pc = pi.clamp(EPS, 1.0);
                         -(ti / pc) / n * gv
                     });
-                    grads[p] = &grads[p] + &dp;
+                    grads[p] += &dp;
                 }
                 Op::Mae(p, t) => {
-                    let gv = grads[i][[0, 0]];
+                    let gv = g[[0, 0]];
                     let diff = &self.values[p] - &self.values[t];
                     let n = diff.len() as f32;
                     let dp = diff.mapv(|e| {
@@ -411,10 +426,10 @@ impl Tape {
                         };
                         s / n * gv
                     });
-                    grads[p] = &grads[p] + &dp;
+                    grads[p] += &dp;
                 }
                 Op::Huber(p, t) => {
-                    let gv = grads[i][[0, 0]];
+                    let gv = g[[0, 0]];
                     let diff = &self.values[p] - &self.values[t];
                     let n = diff.len() as f32;
                     let dp = diff.mapv(|e| {
@@ -425,11 +440,11 @@ impl Tape {
                         };
                         g / n * gv
                     });
-                    grads[p] = &grads[p] + &dp;
+                    grads[p] += &dp;
                 }
                 Op::Dropout(a) => {
                     let mask = self.masks.get(&i).expect("dropout mask");
-                    grads[a] = &grads[a] + &(&g * mask);
+                    grads[a] += &(&g * mask);
                 }
                 Op::LayerNorm(a, gamma, beta, eps) => {
                     let (rows, cols) = (self.values[a].nrows(), self.values[a].ncols());
@@ -471,9 +486,9 @@ impl Tape {
                             dx[[r, c]] = (dxhat[c] - mean_dxhat - xhat[c] * mean_dxhat_xhat) / std;
                         }
                     }
-                    grads[a] = &grads[a] + &dx;
-                    grads[gamma] = &grads[gamma] + &dgamma;
-                    grads[beta] = &grads[beta] + &dbeta;
+                    grads[a] += &dx;
+                    grads[gamma] += &dgamma;
+                    grads[beta] += &dbeta;
                 }
                 Op::BatchNorm(a, gamma, beta, eps) => {
                     // Reduce sobre las filas (batch), por columna.
@@ -516,9 +531,9 @@ impl Tape {
                             dx[[r, c]] = (dxhat - m1 - xhat * m2) / std;
                         }
                     }
-                    grads[a] = &grads[a] + &dx;
-                    grads[gamma] = &grads[gamma] + &dgamma;
-                    grads[beta] = &grads[beta] + &dbeta;
+                    grads[a] += &dx;
+                    grads[gamma] += &dgamma;
+                    grads[beta] += &dbeta;
                 }
                 Op::Embedding(idx, table, dim) => {
                     // Scatter-add del gradiente hacia las filas de la tabla usadas.
@@ -534,7 +549,7 @@ impl Tape {
                             }
                         }
                     }
-                    grads[table] = &grads[table] + &dtable;
+                    grads[table] += &dtable;
                     // idx no es diferenciable: su gradiente queda en cero.
                 }
             }

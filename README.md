@@ -45,7 +45,7 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ## 🚦 Project Status
 
-> **v0.10.1 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
+> **v0.11.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
 
 **Available today** ✅
 - Reverse-mode automatic differentiation (Wengert tape, no `Rc<RefCell>`).

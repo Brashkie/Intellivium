@@ -45,7 +45,7 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.10.1 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.11.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
