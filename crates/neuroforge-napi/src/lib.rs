@@ -8,7 +8,7 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use ndarray::Array2;
-use neuroforge_core::{Activation, Layer, Loss, Model, Optimizer, Rng, TrainConfig};
+use neuroforge_core::{optimizer_from_name, Activation, Layer, Loss, Model, Rng, TrainConfig};
 
 /// Especificación de una capa recibida desde JS.
 /// `kind`: "dense" | "dropout" | "layernorm".
@@ -40,6 +40,8 @@ pub struct JsTrainConfig {
     pub beta1: Option<f64>,
     pub beta2: Option<f64>,
     pub eps: Option<f64>,
+    /// weight decay (para adamw / lion)
+    pub weight_decay: Option<f64>,
     /// Tamaño de mini-batch. 0/ausente = batch completo.
     pub batch_size: Option<u32>,
     /// Clipping de gradiente por norma L2 global. 0/ausente = desactivado.
@@ -66,14 +68,13 @@ pub struct TrainOutcome {
 
 impl JsTrainConfig {
     fn to_core(&self) -> TrainConfig {
-        let optimizer = match self.optimizer.as_deref() {
-            Some("adam") => Optimizer::Adam {
-                beta1: self.beta1.unwrap_or(0.9) as f32,
-                beta2: self.beta2.unwrap_or(0.999) as f32,
-                eps: self.eps.unwrap_or(1e-8) as f32,
-            },
-            _ => Optimizer::Sgd,
-        };
+        let optimizer = optimizer_from_name(
+            self.optimizer.as_deref().unwrap_or("sgd"),
+            self.beta1.map(|v| v as f32),
+            self.beta2.map(|v| v as f32),
+            self.eps.map(|v| v as f32),
+            self.weight_decay.map(|v| v as f32),
+        );
         TrainConfig {
             epochs: self.epochs as usize,
             lr: self.lr as f32,

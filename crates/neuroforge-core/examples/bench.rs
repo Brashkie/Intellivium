@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use ndarray::Array2;
-use neuroforge_core::{Activation, Layer, Loss, Model, Optimizer, Rng, TrainConfig};
+use neuroforge_core::{Activation, Adam, Layer, Loss, Model, Rng, TrainConfig};
 
 fn main() {
     let mut rng = Rng::new(42);
@@ -23,7 +23,7 @@ fn main() {
         epochs: 50,
         lr: 0.01,
         loss: Loss::Cce,
-        optimizer: Optimizer::adam_default(),
+        optimizer: Box::<Adam>::default(),
         batch_size: 64,
         grad_clip: 0.0,
         lr_decay: 1.0,

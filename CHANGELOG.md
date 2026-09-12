@@ -6,6 +6,22 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-12
+### Added
+- **Fase 3.5 — Optimizadores extensibles.** El optimizador pasa de un `enum`
+  cerrado a un **`trait Optimizer` abierto**: implementar `step(...)` permite
+  añadir un optimizador **sin editar el core**.
+- **AdamW** (`optimizer: "adamw"`): Adam con weight decay **desacoplado**
+  (`weightDecay`).
+- **Lion** (`optimizer: "lion"`): momentum por signo; usa solo el primer momento
+  (mitad del estado de Adam).
+- Los built-in (SGD, Adam, AdamW, Lion) son structs que implementan el trait;
+  `optimizer_from_name` los construye por nombre para el binding.
+- Tests (Rust y TS) de convergencia con AdamW y Lion.
+### Changed
+- `TrainConfig.optimizer` ahora es `Box<dyn Optimizer>` (antes un enum). API de
+  TS compatible: `optimizer: "sgd" | "adam" | "adamw" | "lion"`.
+
 ## [0.11.0] - 2026-08-16
 ### Performance
 - **Backward optimizado (Fase 1)**: acumulación de gradientes **in-place** (`+=`)

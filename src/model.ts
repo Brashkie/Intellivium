@@ -10,13 +10,13 @@ import {
 import { type NativeModelInstance, getNativeModel } from "./native.js";
 import { Tensor } from "./tensor.js";
 
-export type OptimizerName = "sgd" | "adam";
+export type OptimizerName = "sgd" | "adam" | "adamw" | "lion";
 export type LossName = "mse" | "bce" | "cce" | "mae" | "huber";
 
 export interface TrainOptions {
   epochs?: number;
   lr?: number;
-  /** "sgd" | "adam" (default: "sgd") */
+  /** "sgd" | "adam" | "adamw" | "lion" (default: "sgd") */
   optimizer?: OptimizerName;
   /** "mse" | "bce" | "cce" (default: "mse") */
   loss?: LossName;
@@ -32,10 +32,12 @@ export interface TrainOptions {
   minDelta?: number;
   /** Restaurar los pesos de la mejor época al terminar (checkpoint). */
   restoreBest?: boolean;
-  /** Hiperparámetros de Adam (opcionales). */
+  /** Hiperparámetros de Adam/AdamW (opcionales). */
   beta1?: number;
   beta2?: number;
   eps?: number;
+  /** weight decay para AdamW/Lion (opcional). */
+  weightDecay?: number;
 }
 
 /** Datos de validación para {@link Model.fit}. */
@@ -120,6 +122,7 @@ export class Model {
       beta1: opts.beta1,
       beta2: opts.beta2,
       eps: opts.eps,
+      weightDecay: opts.weightDecay,
     };
   }
 

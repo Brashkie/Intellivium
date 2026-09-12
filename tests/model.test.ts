@@ -367,4 +367,33 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
       expect(Math.abs(a[i][0] - b[i][0])).toBeLessThan(1e-6);
     }
   });
+
+  it("entrena XOR con AdamW y con Lion", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+
+    const mAW = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const hAW = await mAW.train(X, y, {
+      epochs: 2000,
+      lr: 0.03,
+      optimizer: "adamw",
+      loss: "bce",
+      weightDecay: 0.01,
+    });
+    expect(hAW.at(-1) ?? 1).toBeLessThan(0.2);
+
+    const mLi = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const hLi = await mLi.train(X, y, {
+      epochs: 3000,
+      lr: 0.005,
+      optimizer: "lion",
+      loss: "bce",
+    });
+    expect((hLi.at(-1) ?? 1) < hLi[0]).toBe(true);
+  });
 });

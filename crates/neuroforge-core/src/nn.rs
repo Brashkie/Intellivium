@@ -71,37 +71,200 @@ impl Loss {
 
 /// Optimizador. `Adam` guarda sus hiperparámetros; el estado (momentos) vive
 /// en cada capa.
-#[derive(Clone, Copy, Debug)]
-pub enum Optimizer {
-    Sgd,
-    Adam { beta1: f32, beta2: f32, eps: f32 },
+/// Un optimizador actualiza un parámetro **in-place** a partir de su gradiente
+/// y sus buffers de estado `m`, `v` (primer y segundo momento, mantenidos por
+/// cada parámetro). Implementa este trait para añadir tu propio optimizador
+/// **sin editar el resto del motor**.
+///
+/// - SGD ignora `m` y `v`.
+/// - Adam/AdamW usan `m` y `v`.
+/// - Lion usa solo `m` (ahorra el segundo momento).
+pub trait Optimizer: std::fmt::Debug {
+    fn step(
+        &self,
+        param: &mut Array2<f32>,
+        grad: &Array2<f32>,
+        m: &mut Array2<f32>,
+        v: &mut Array2<f32>,
+        lr: f32,
+        t: i32,
+    );
 }
 
-impl Optimizer {
-    pub fn adam_default() -> Optimizer {
-        Optimizer::Adam {
+/// Descenso de gradiente estocástico.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Sgd;
+
+impl Optimizer for Sgd {
+    fn step(
+        &self,
+        p: &mut Array2<f32>,
+        g: &Array2<f32>,
+        _m: &mut Array2<f32>,
+        _v: &mut Array2<f32>,
+        lr: f32,
+        _t: i32,
+    ) {
+        *p = &*p - &(g * lr);
+    }
+}
+
+/// Adam (Kingma & Ba, 2014).
+#[derive(Debug, Clone, Copy)]
+pub struct Adam {
+    pub beta1: f32,
+    pub beta2: f32,
+    pub eps: f32,
+}
+
+impl Default for Adam {
+    fn default() -> Self {
+        Adam {
             beta1: 0.9,
             beta2: 0.999,
             eps: 1e-8,
         }
     }
+}
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Optimizer {
-        match s.to_lowercase().as_str() {
-            "adam" => Optimizer::adam_default(),
-            _ => Optimizer::Sgd,
+impl Optimizer for Adam {
+    fn step(
+        &self,
+        p: &mut Array2<f32>,
+        g: &Array2<f32>,
+        m: &mut Array2<f32>,
+        v: &mut Array2<f32>,
+        lr: f32,
+        t: i32,
+    ) {
+        adam_core(p, g, m, v, lr, self.beta1, self.beta2, self.eps, t, 0.0);
+    }
+}
+
+/// AdamW (Loshchilov & Hutter, 2019): Adam con weight decay **desacoplado**.
+#[derive(Debug, Clone, Copy)]
+pub struct AdamW {
+    pub beta1: f32,
+    pub beta2: f32,
+    pub eps: f32,
+    pub weight_decay: f32,
+}
+
+impl Default for AdamW {
+    fn default() -> Self {
+        AdamW {
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+            weight_decay: 0.01,
         }
     }
 }
 
+impl Optimizer for AdamW {
+    fn step(
+        &self,
+        p: &mut Array2<f32>,
+        g: &Array2<f32>,
+        m: &mut Array2<f32>,
+        v: &mut Array2<f32>,
+        lr: f32,
+        t: i32,
+    ) {
+        adam_core(
+            p,
+            g,
+            m,
+            v,
+            lr,
+            self.beta1,
+            self.beta2,
+            self.eps,
+            t,
+            self.weight_decay,
+        );
+    }
+}
+
+/// Lion (EvoLved Sign Momentum, Chen et al. 2023). Usa solo el primer momento
+/// (mitad del estado de Adam) y actualiza con el **signo** del momento.
+#[derive(Debug, Clone, Copy)]
+pub struct Lion {
+    pub beta1: f32,
+    pub beta2: f32,
+    pub weight_decay: f32,
+}
+
+impl Default for Lion {
+    fn default() -> Self {
+        Lion {
+            beta1: 0.9,
+            beta2: 0.99,
+            weight_decay: 0.0,
+        }
+    }
+}
+
+impl Optimizer for Lion {
+    fn step(
+        &self,
+        p: &mut Array2<f32>,
+        g: &Array2<f32>,
+        m: &mut Array2<f32>,
+        _v: &mut Array2<f32>,
+        lr: f32,
+        _t: i32,
+    ) {
+        // c = beta1*m + (1-beta1)*g ; update = sign(c)
+        let c = &(&*m * self.beta1) + &(g * (1.0 - self.beta1));
+        let update = c.mapv(|x| x.signum());
+        if self.weight_decay != 0.0 {
+            *p = &*p - &((&update + &(&*p * self.weight_decay)) * lr);
+        } else {
+            *p = &*p - &(update * lr);
+        }
+        // m = beta2*m + (1-beta2)*g
+        *m = &(&*m * self.beta2) + &(g * (1.0 - self.beta2));
+    }
+}
+
+/// Construye un optimizador por nombre (para el binding N-API / API de TS).
+/// Nombres: "sgd", "adam", "adamw", "lion".
+pub fn optimizer_from_name(
+    name: &str,
+    beta1: Option<f32>,
+    beta2: Option<f32>,
+    eps: Option<f32>,
+    weight_decay: Option<f32>,
+) -> Box<dyn Optimizer> {
+    match name.to_lowercase().as_str() {
+        "adam" => Box::new(Adam {
+            beta1: beta1.unwrap_or(0.9),
+            beta2: beta2.unwrap_or(0.999),
+            eps: eps.unwrap_or(1e-8),
+        }),
+        "adamw" => Box::new(AdamW {
+            beta1: beta1.unwrap_or(0.9),
+            beta2: beta2.unwrap_or(0.999),
+            eps: eps.unwrap_or(1e-8),
+            weight_decay: weight_decay.unwrap_or(0.01),
+        }),
+        "lion" => Box::new(Lion {
+            beta1: beta1.unwrap_or(0.9),
+            beta2: beta2.unwrap_or(0.99),
+            weight_decay: weight_decay.unwrap_or(0.0),
+        }),
+        _ => Box::new(Sgd),
+    }
+}
+
 /// Configuración de entrenamiento.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct TrainConfig {
     pub epochs: usize,
     pub lr: f32,
     pub loss: Loss,
-    pub optimizer: Optimizer,
+    pub optimizer: Box<dyn Optimizer>,
     /// Tamaño de mini-batch. 0 = batch completo (todo el dataset por época).
     pub batch_size: usize,
     /// Clipping de gradiente por norma L2 global. 0 = desactivado.
@@ -137,7 +300,7 @@ impl TrainConfig {
             epochs,
             lr,
             loss: Loss::Mse,
-            optimizer: Optimizer::Sgd,
+            optimizer: Box::new(Sgd),
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,
@@ -152,7 +315,7 @@ impl TrainConfig {
             epochs,
             lr,
             loss: Loss::Mse,
-            optimizer: Optimizer::adam_default(),
+            optimizer: Box::<Adam>::default(),
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,
@@ -165,16 +328,17 @@ impl TrainConfig {
 
 /// Un paso de Adam sobre un parámetro (actualiza in-place p, m y v).
 #[allow(clippy::too_many_arguments)]
-fn adam_step(
+fn adam_core(
     p: &mut Array2<f32>,
+    g: &Array2<f32>,
     m: &mut Array2<f32>,
     v: &mut Array2<f32>,
-    g: &Array2<f32>,
     lr: f32,
     b1: f32,
     b2: f32,
     eps: f32,
     t: i32,
+    weight_decay: f32,
 ) {
     *m = &(&*m * b1) + &(g * (1.0 - b1));
     let g2 = g * g;
@@ -182,7 +346,12 @@ fn adam_step(
     let mhat = &*m / (1.0 - b1.powi(t));
     let vhat = &*v / (1.0 - b2.powi(t));
     let update = mhat / (vhat.mapv(f32::sqrt) + eps);
-    *p = &*p - &(update * lr);
+    // AdamW: weight decay desacoplado (p -= lr*(update + wd*p)).
+    if weight_decay != 0.0 {
+        *p = &*p - &((&update + &(&*p * weight_decay)) * lr);
+    } else {
+        *p = &*p - &(update * lr);
+    }
 }
 
 /// Capa densa (fully-connected): y = act(x . W + b)
@@ -336,7 +505,7 @@ impl Layer {
         &mut self,
         ids: &[usize],
         grads: &[Array2<f32>],
-        opt: &Optimizer,
+        opt: &dyn Optimizer,
         lr: f32,
         t: i32,
         scale: f32,
@@ -400,18 +569,11 @@ fn apply_param(
     m: &mut Array2<f32>,
     v: &mut Array2<f32>,
     g: &Array2<f32>,
-    opt: &Optimizer,
+    opt: &dyn Optimizer,
     lr: f32,
     t: i32,
 ) {
-    match *opt {
-        Optimizer::Sgd => {
-            *p = &*p - &(g * lr);
-        }
-        Optimizer::Adam { beta1, beta2, eps } => {
-            adam_step(p, m, v, g, lr, beta1, beta2, eps, t);
-        }
-    }
+    opt.step(p, g, m, v, lr, t);
 }
 
 pub struct Model {
@@ -660,7 +822,7 @@ impl Model {
         self.t += 1;
         for (li, ids) in param_ids.iter().enumerate() {
             if !ids.is_empty() {
-                self.layers[li].apply_grads(ids, &grads, &cfg.optimizer, lr, self.t, scale);
+                self.layers[li].apply_grads(ids, &grads, cfg.optimizer.as_ref(), lr, self.t, scale);
             }
         }
         loss_val
@@ -862,7 +1024,7 @@ mod tests {
             epochs: 1500,
             lr: 0.05,
             loss: Loss::Bce,
-            optimizer: Optimizer::adam_default(),
+            optimizer: Box::<Adam>::default(),
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,
@@ -885,16 +1047,69 @@ mod tests {
         assert!(matches!(Activation::from_str("otro"), Activation::Linear));
         assert!(matches!(Loss::from_str("bce"), Loss::Bce));
         assert!(matches!(Loss::from_str("mse"), Loss::Mse));
-        assert!(matches!(
-            Optimizer::from_str("adam"),
-            Optimizer::Adam { .. }
-        ));
-        assert!(matches!(Optimizer::from_str("sgd"), Optimizer::Sgd));
+        // el factory por nombre devuelve el optimizador correcto (trait object)
+        assert!(!format!("{:?}", optimizer_from_name("adam", None, None, None, None)).is_empty());
+        assert!(
+            format!("{:?}", optimizer_from_name("sgd", None, None, None, None)).contains("Sgd")
+        );
+        assert!(
+            format!("{:?}", optimizer_from_name("adamw", None, None, None, None)).contains("AdamW")
+        );
+        assert!(
+            format!("{:?}", optimizer_from_name("lion", None, None, None, None)).contains("Lion")
+        );
         assert!(matches!(
             Activation::from_str("softmax"),
             Activation::Softmax
         ));
         assert!(matches!(Loss::from_str("cce"), Loss::Cce));
+    }
+
+    #[test]
+    fn adamw_y_lion_convergen_en_xor() {
+        let (x, y) = xor_data();
+
+        let mut rng = Rng::new(7);
+        let mut m_aw = xor_model(&mut rng);
+        let cfg_aw = TrainConfig {
+            epochs: 2000,
+            lr: 0.03,
+            loss: Loss::Bce,
+            optimizer: Box::<AdamW>::default(),
+            batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
+        };
+        let h_aw = m_aw.train(&x, &y, &cfg_aw);
+        assert!(
+            *h_aw.last().unwrap() < 0.15,
+            "AdamW: {}",
+            h_aw.last().unwrap()
+        );
+        assert_xor(&m_aw, &x);
+
+        let mut rng2 = Rng::new(7);
+        let mut m_li = xor_model(&mut rng2);
+        let cfg_li = TrainConfig {
+            epochs: 3000,
+            lr: 0.005,
+            loss: Loss::Bce,
+            optimizer: Box::<Lion>::default(),
+            batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
+        };
+        let h_li = m_li.train(&x, &y, &cfg_li);
+        assert!(
+            h_li.last().unwrap() < h_li.first().unwrap(),
+            "Lion no bajó la loss"
+        );
     }
 
     #[test]
@@ -906,7 +1121,7 @@ mod tests {
             epochs: 3000,
             lr: 0.05,
             loss: Loss::Bce,
-            optimizer: Optimizer::adam_default(),
+            optimizer: Box::<Adam>::default(),
             batch_size: 2, // mini-batches de 2 sobre 4 muestras
             grad_clip: 5.0,
             lr_decay: 1.0,
@@ -968,7 +1183,7 @@ mod tests {
             epochs: 2000,
             lr: 0.05,
             loss: Loss::Cce,
-            optimizer: Optimizer::adam_default(),
+            optimizer: Box::<Adam>::default(),
             batch_size: 0,
             grad_clip: 0.0,
             lr_decay: 1.0,

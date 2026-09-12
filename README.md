@@ -45,7 +45,7 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ## 🚦 Project Status
 
-> **v0.11.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
+> **v0.12.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
 
 **Available today** ✅
 - Reverse-mode automatic differentiation (Wengert tape, no `Rc<RefCell>`).
@@ -249,6 +249,20 @@ The engine is the foundation. Everything below is the long-term plan, phase by p
 - [ ] LSTM
 - [ ] GRU
 
+### Phase 3.5 — Advanced Optimization · 🟡
+*Near-term, fits the current 2D engine. Turns "compose your own algorithm" from slogan into reality.*
+
+**Extensible optimizers**
+- [x] Refactor optimizer `enum` → open `trait` (add an optimizer without editing the core)
+
+**New-generation optimizers**
+- [x] AdamW (decoupled weight decay)
+- [x] Lion (sign-momentum; ~33–50% less optimizer state than Adam)
+- [ ] Yogi (controlled effective learning rate on noisy gradients)
+
+**Sharpness-aware training**
+- [ ] SAM (Sharpness-Aware Minimization — flatter minima, better generalization)
+
 ### Phase 4 — Engine Optimization · 🔴
 *Before adding modern AI.*
 
@@ -395,6 +409,33 @@ The engine is the foundation. Everything below is the long-term plan, phase by p
 **AutoML**
 - [ ] NAS
 - [ ] Hyperparameter search
+
+---
+
+## 🔬 Exploration — under consideration
+
+Ideas discussed for the long term. **Not committed** — listed here so they aren't lost, not as promises. Most are research-grade or depend on the N-D tensor engine.
+
+**Primary-user strategy.** Intellivium serves three profiles; the intended order is **3 → 2 → 1**: first the *algorithm composer* (extend the engine in Rust — its real edge today), then the *theory inspector* (visualize/diagnose training), then the *edge engineer* (GPU, quantization, serving — the heaviest, latest work). Advanced Optimization (Phase 3.5) is the first concrete rung of this.
+
+**Optimization & convergence theory**
+- [ ] SPS — Stochastic Polyak Stepsizes (auto LR; strongest under interpolation)
+- [ ] Proximal SGD / soft-thresholding (exact L1 → real sparsity, non-differentiable regularizers)
+- [ ] K-FAC — Kronecker-factored second-order curvature (research-grade)
+- [ ] PŁ / interpolation diagnostics (gradient norm, loss residual, convergence checks)
+
+**Autograd evolution**
+- [ ] Forward-mode & mixed AD (JVP, Hessian-vector products)
+- [ ] Gradient checkpointing (recompute activations → deeper nets in fixed RAM)
+- [ ] JIT kernel fusion (graph capture; fuse `ReLU(MatMul+B)`) — engine rewrite, far term
+
+**Hardware & generalization**
+- [ ] wgpu backend (WebGPU/WGSL → Vulkan/Metal/DX12, and GPU in the browser via WASM)
+- [ ] VC-dimension / margin tooling (capacity & generalization diagnostics)
+
+**Geometry & spectral**
+- [ ] Cyclic feature encoding (`sin`/`cos` for periodic variables) — cheap, 2D, near-term
+- [ ] Fourier Neural Operators (needs N-D + complex numbers + FFT — far term)
 
 ## 🤝 Contributing
 

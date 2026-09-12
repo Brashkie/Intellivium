@@ -45,7 +45,7 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.11.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.12.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
@@ -249,6 +249,20 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [ ] LSTM
 - [ ] GRU
 
+### Fase 3.5 — Optimización Avanzada · 🟡
+*A corto plazo, encaja en el motor 2D actual. Convierte "compón tu propio algoritmo" de eslogan en realidad.*
+
+**Optimizadores extensibles**
+- [x] Refactor del optimizador `enum` → `trait` abierto (añadir un optimizador sin editar el core)
+
+**Optimizadores de nueva generación**
+- [x] AdamW (weight decay desacoplado)
+- [x] Lion (momentum por signo; ~33–50% menos estado que Adam)
+- [ ] Yogi (tasa efectiva controlada ante gradientes ruidosos)
+
+**Entrenamiento consciente de la nitidez**
+- [ ] SAM (Sharpness-Aware Minimization — mínimos más planos, mejor generalización)
+
 ### Fase 4 — Optimización del Motor · 🔴
 *Antes de agregar IA moderna.*
 
@@ -395,6 +409,33 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 **AutoML**
 - [ ] NAS
 - [ ] Hyperparameter Search
+
+---
+
+## 🔬 Exploración — bajo consideración
+
+Ideas charladas para el largo plazo. **No comprometidas** — se listan para no perderlas, no como promesas. La mayoría son de nivel investigación o dependen del tensor N-D.
+
+**Estrategia de usuario primario.** Intellivium sirve a tres perfiles; el orden previsto es **3 → 2 → 1**: primero el *compositor de algoritmos* (extender el motor en Rust — su ventaja real hoy), luego el *inspector teórico* (visualizar/diagnosticar el entrenamiento), y por último el *ingeniero de borde* (GPU, cuantización, serving — el trabajo más pesado y lejano). La Optimización Avanzada (Fase 3.5) es el primer peldaño concreto de esto.
+
+**Optimización y teoría de convergencia**
+- [ ] SPS — Stochastic Polyak Stepsizes (LR automático; más fuerte bajo interpolación)
+- [ ] Proximal SGD / soft-thresholding (L1 exacto → sparsity real, regularizadores no diferenciables)
+- [ ] K-FAC — curvatura de segundo orden por producto de Kronecker (nivel investigación)
+- [ ] Diagnóstico PŁ / interpolación (norma del gradiente, residuo de pérdida, chequeos de convergencia)
+
+**Evolución del autograd**
+- [ ] Modo directo y mixto (JVP, productos Hessiana-vector)
+- [ ] Gradient checkpointing (recomputar activaciones → redes más profundas con RAM fija)
+- [ ] Fusión de kernels JIT (captura de grafo; fusionar `ReLU(MatMul+B)`) — reescritura del motor, muy a futuro
+
+**Hardware y generalización**
+- [ ] Backend wgpu (WebGPU/WGSL → Vulkan/Metal/DX12, y GPU en el navegador vía WASM)
+- [ ] Herramientas de dimensión VC / margen (diagnóstico de capacidad y generalización)
+
+**Geometría y espectral**
+- [ ] Codificación cíclica de features (`sin`/`cos` para variables periódicas) — barato, 2D, a corto plazo
+- [ ] Fourier Neural Operators (requiere N-D + números complejos + FFT — muy a futuro)
 
 ## 🤝 Contribuciones
 

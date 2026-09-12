@@ -2,7 +2,7 @@
 //! Ahora con Adam + BCE. Si converge, el autograd + optimizador están bien.
 
 use ndarray::array;
-use neuroforge_core::{Activation, Layer, Loss, Model, Optimizer, Rng, TrainConfig};
+use neuroforge_core::{Activation, Adam, Layer, Loss, Model, Rng, TrainConfig};
 
 fn main() {
     let mut rng = Rng::new(7);
@@ -19,7 +19,7 @@ fn main() {
         epochs: 1500,
         lr: 0.05,
         loss: Loss::Bce,
-        optimizer: Optimizer::adam_default(),
+        optimizer: Box::<Adam>::default(),
         batch_size: 0,
         grad_clip: 0.0,
         lr_decay: 1.0,
