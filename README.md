@@ -45,7 +45,7 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ## 🚦 Project Status
 
-> **v0.12.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
+> **v0.13.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
 
 **Available today** ✅
 - Reverse-mode automatic differentiation (Wengert tape, no `Rc<RefCell>`).
@@ -261,7 +261,7 @@ The engine is the foundation. Everything below is the long-term plan, phase by p
 - [ ] Yogi (controlled effective learning rate on noisy gradients)
 
 **Sharpness-aware training**
-- [ ] SAM (Sharpness-Aware Minimization — flatter minima, better generalization)
+- [x] SAM (Sharpness-Aware Minimization — flatter minima, better generalization)
 
 ### Phase 4 — Engine Optimization · 🔴
 *Before adding modern AI.*

@@ -28,6 +28,7 @@ export interface NativeTrainConfig {
   patience?: number;
   minDelta?: number;
   restoreBest?: boolean;
+  samRho?: number;
   weightDecay?: number;
 }
 

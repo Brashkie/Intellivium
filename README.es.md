@@ -45,7 +45,7 @@ Se inspira en PyTorch, TensorFlow y Flux.jl, pero toma una decisión de ingenier
 
 ## 🚦 Estado del proyecto
 
-> **v0.12.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
+> **v0.13.0 · en npm.** El motor está probado y entrena modelos de verdad. Aún es pre-1.0, así que el API puede evolucionar — y la visión grande más abajo es un roadmap, no una afirmación actual.
 
 **Disponible hoy** ✅
 - Diferenciación automática reverse-mode (tape de Wengert, sin `Rc<RefCell>`).
@@ -261,7 +261,7 @@ El motor es la base. Todo lo de abajo es el plan a largo plazo, fase por fase �
 - [ ] Yogi (tasa efectiva controlada ante gradientes ruidosos)
 
 **Entrenamiento consciente de la nitidez**
-- [ ] SAM (Sharpness-Aware Minimization — mínimos más planos, mejor generalización)
+- [x] SAM (Sharpness-Aware Minimization — mínimos más planos, mejor generalización)
 
 ### Fase 4 — Optimización del Motor · 🔴
 *Antes de agregar IA moderna.*

@@ -30,6 +30,7 @@ fn main() {
         patience: 0,
         min_delta: 0.0,
         restore_best: false,
+        sam_rho: 0.0,
     };
 
     // calentamiento

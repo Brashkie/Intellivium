@@ -54,6 +54,8 @@ pub struct JsTrainConfig {
     pub min_delta: Option<f64>,
     /// Restaurar los pesos de la mejor época al terminar.
     pub restore_best: Option<bool>,
+    /// radio de SAM (0 = desactivado)
+    pub sam_rho: Option<f64>,
 }
 
 /// Resultado del entrenamiento devuelto a JS.
@@ -86,6 +88,7 @@ impl JsTrainConfig {
             patience: self.patience.unwrap_or(0) as usize,
             min_delta: self.min_delta.unwrap_or(0.0) as f32,
             restore_best: self.restore_best.unwrap_or(false),
+            sam_rho: self.sam_rho.unwrap_or(0.0) as f32,
         }
     }
 }

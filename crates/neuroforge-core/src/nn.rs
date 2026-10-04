@@ -277,6 +277,8 @@ pub struct TrainConfig {
     pub min_delta: f32,
     /// Al terminar, restaurar los pesos de la mejor época (checkpoint).
     pub restore_best: bool,
+    /// Radio de SAM (Sharpness-Aware Minimization). 0 = desactivado. Típico: 0.05.
+    pub sam_rho: f32,
 }
 
 /// Resultado de un entrenamiento con validación.
@@ -307,6 +309,7 @@ impl TrainConfig {
             patience: 0,
             min_delta: 0.0,
             restore_best: false,
+            sam_rho: 0.0,
         }
     }
 
@@ -322,6 +325,7 @@ impl TrainConfig {
             patience: 0,
             min_delta: 0.0,
             restore_best: false,
+            sam_rho: 0.0,
         }
     }
 }
@@ -533,6 +537,29 @@ impl Layer {
             Layer::Embedding(emb) => {
                 let gt = &grads[ids[0]] * scale;
                 apply_param(&mut emb.table, &mut emb.mt, &mut emb.vt, &gt, opt, lr, t);
+            }
+        }
+    }
+
+    /// Suma `factor * grad` a cada parámetro, sin optimizador ni estado (para
+    /// perturbar/restaurar en SAM).
+    fn add_scaled_grads(&mut self, ids: &[usize], grads: &[Array2<f32>], factor: f32) {
+        match self {
+            Layer::Dense(d) => {
+                d.w = &d.w + &(&grads[ids[0]] * factor);
+                d.b = &d.b + &(&grads[ids[1]] * factor);
+            }
+            Layer::Dropout(_) => {}
+            Layer::LayerNorm(ln) => {
+                ln.gamma = &ln.gamma + &(&grads[ids[0]] * factor);
+                ln.beta = &ln.beta + &(&grads[ids[1]] * factor);
+            }
+            Layer::BatchNorm(bn) => {
+                bn.gamma = &bn.gamma + &(&grads[ids[0]] * factor);
+                bn.beta = &bn.beta + &(&grads[ids[1]] * factor);
+            }
+            Layer::Embedding(e) => {
+                e.table = &e.table + &(&grads[ids[0]] * factor);
             }
         }
     }
@@ -781,50 +808,156 @@ impl Model {
         }
     }
 
-    /// Un paso de entrenamiento sobre un batch. Aplica clipping global si procede.
-    fn step(&mut self, xb: &Array2<f32>, yb: &Array2<f32>, cfg: &TrainConfig, lr: f32) -> f32 {
+    /// Forward + backward sobre un batch (modo training). Devuelve
+    /// (loss, ids de parámetros por capa, gradientes de la cinta, updates de BN).
+    #[allow(clippy::type_complexity)]
+    fn fw_bw(
+        &self,
+        xb: &Array2<f32>,
+        yb: &Array2<f32>,
+        cfg: &TrainConfig,
+        rng: &mut Rng,
+    ) -> (
+        f32,
+        Vec<Vec<usize>>,
+        Vec<Array2<f32>>,
+        Vec<(usize, Array2<f32>, Array2<f32>)>,
+    ) {
         let mut tape = Tape::with_capacity(self.layers.len() * 6 + 4);
         let xid = tape.leaf(xb.clone());
         let yid = tape.leaf(yb.clone());
-
-        let mut rng = std::mem::replace(&mut self.rng, Rng::new(1));
-        let (out, param_ids, bn_updates) = self.forward_tape(&mut tape, xid, true, Some(&mut rng));
-        self.rng = rng;
-
+        let (out, param_ids, bn_updates) = self.forward_tape(&mut tape, xid, true, Some(rng));
         let loss = Self::build_loss(&mut tape, cfg.loss, out, yid);
         let loss_val = tape.value(loss)[[0, 0]];
         let grads = tape.backward(loss);
+        (loss_val, param_ids, grads, bn_updates)
+    }
 
-        // Actualiza las running stats de cada BatchNorm con las del batch (EMA).
-        for (li, mean, var) in &bn_updates {
+    /// Actualiza las running stats de cada BatchNorm con las del batch (EMA).
+    fn apply_bn_updates(&mut self, bn_updates: &[(usize, Array2<f32>, Array2<f32>)]) {
+        for (li, mean, var) in bn_updates {
             if let Layer::BatchNorm(bn) = &mut self.layers[*li] {
                 let m = bn.momentum;
                 bn.running_mean = &(&bn.running_mean * (1.0 - m)) + &(mean * m);
                 bn.running_var = &(&bn.running_var * (1.0 - m)) + &(var * m);
             }
         }
+    }
 
-        // Clipping por norma L2 global sobre todos los parámetros.
-        let mut scale = 1.0f32;
-        if cfg.grad_clip > 0.0 {
-            let mut sq = 0.0f32;
-            for ids in &param_ids {
-                for &id in ids {
-                    sq += grads[id].iter().map(|&v| v * v).sum::<f32>();
-                }
-            }
-            let norm = sq.sqrt();
-            if norm > cfg.grad_clip {
-                scale = cfg.grad_clip / (norm + 1e-12);
+    /// Factor de clipping por norma L2 global (1.0 si no aplica).
+    fn clip_scale(
+        &self,
+        param_ids: &[Vec<usize>],
+        grads: &[Array2<f32>],
+        cfg: &TrainConfig,
+    ) -> f32 {
+        if cfg.grad_clip <= 0.0 {
+            return 1.0;
+        }
+        let mut sq = 0.0f32;
+        for ids in param_ids {
+            for &id in ids {
+                sq += grads[id].iter().map(|&v| v * v).sum::<f32>();
             }
         }
+        let norm = sq.sqrt();
+        if norm > cfg.grad_clip {
+            cfg.grad_clip / (norm + 1e-12)
+        } else {
+            1.0
+        }
+    }
 
-        self.t += 1;
+    /// Aplica los gradientes a todos los parámetros con el optimizador.
+    fn apply_all(
+        &mut self,
+        param_ids: &[Vec<usize>],
+        grads: &[Array2<f32>],
+        cfg: &TrainConfig,
+        lr: f32,
+        scale: f32,
+    ) {
         for (li, ids) in param_ids.iter().enumerate() {
             if !ids.is_empty() {
-                self.layers[li].apply_grads(ids, &grads, cfg.optimizer.as_ref(), lr, self.t, scale);
+                self.layers[li].apply_grads(ids, grads, cfg.optimizer.as_ref(), lr, self.t, scale);
             }
         }
+    }
+
+    /// Un paso de entrenamiento sobre un batch. Usa SAM si `cfg.sam_rho > 0`.
+    fn step(&mut self, xb: &Array2<f32>, yb: &Array2<f32>, cfg: &TrainConfig, lr: f32) -> f32 {
+        let mut rng = std::mem::replace(&mut self.rng, Rng::new(1));
+        let loss_val = if cfg.sam_rho > 0.0 {
+            self.step_sam(xb, yb, cfg, lr, &mut rng)
+        } else {
+            self.step_plain(xb, yb, cfg, lr, &mut rng)
+        };
+        self.rng = rng;
+        loss_val
+    }
+
+    /// Paso estándar: forward+backward, BN, clipping y update.
+    fn step_plain(
+        &mut self,
+        xb: &Array2<f32>,
+        yb: &Array2<f32>,
+        cfg: &TrainConfig,
+        lr: f32,
+        rng: &mut Rng,
+    ) -> f32 {
+        let (loss_val, param_ids, grads, bn_updates) = self.fw_bw(xb, yb, cfg, rng);
+        self.apply_bn_updates(&bn_updates);
+        let scale = self.clip_scale(&param_ids, &grads, cfg);
+        self.t += 1;
+        self.apply_all(&param_ids, &grads, cfg, lr, scale);
+        loss_val
+    }
+
+    /// Paso SAM (Sharpness-Aware Minimization): dos pasadas por batch.
+    /// 1) perturba los pesos hacia el punto más adverso del vecindario
+    ///    (ε = ρ·g/‖g‖), 2) calcula el gradiente ahí y actualiza con él.
+    fn step_sam(
+        &mut self,
+        xb: &Array2<f32>,
+        yb: &Array2<f32>,
+        cfg: &TrainConfig,
+        lr: f32,
+        rng: &mut Rng,
+    ) -> f32 {
+        // Pass 1: gradiente en el punto actual.
+        let (loss_val, pids, grads1, _) = self.fw_bw(xb, yb, cfg, rng);
+
+        // ε = ρ / (‖g‖ + eps)
+        let mut norm_sq = 0.0f32;
+        for ids in &pids {
+            for &id in ids {
+                norm_sq += grads1[id].iter().map(|&v| v * v).sum::<f32>();
+            }
+        }
+        let eps = cfg.sam_rho / (norm_sq.sqrt() + 1e-12);
+
+        // Perturbar: w += ε·g
+        for (li, ids) in pids.iter().enumerate() {
+            if !ids.is_empty() {
+                self.layers[li].add_scaled_grads(ids, &grads1, eps);
+            }
+        }
+
+        // Pass 2: gradiente en el punto perturbado.
+        let (_, pids2, grads2, bn_updates) = self.fw_bw(xb, yb, cfg, rng);
+
+        // Restaurar los pesos (mismo g que al perturbar).
+        for (li, ids) in pids.iter().enumerate() {
+            if !ids.is_empty() {
+                self.layers[li].add_scaled_grads(ids, &grads1, -eps);
+            }
+        }
+
+        // BN del segundo pase + update con grads2.
+        self.apply_bn_updates(&bn_updates);
+        let scale = self.clip_scale(&pids2, &grads2, cfg);
+        self.t += 1;
+        self.apply_all(&pids2, &grads2, cfg, lr, scale);
         loss_val
     }
 
@@ -1031,6 +1164,7 @@ mod tests {
             patience: 0,
             min_delta: 0.0,
             restore_best: false,
+            sam_rho: 0.0,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -1066,6 +1200,34 @@ mod tests {
     }
 
     #[test]
+    fn sam_entrena_xor() {
+        // SAM envuelve al optimizador base (Adam aquí) con dos pasadas por batch.
+        let (x, y) = xor_data();
+        let mut rng = Rng::new(7);
+        let mut model = xor_model(&mut rng);
+        let cfg = TrainConfig {
+            epochs: 2000,
+            lr: 0.03,
+            loss: Loss::Bce,
+            optimizer: Box::<Adam>::default(),
+            batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
+            sam_rho: 0.05,
+        };
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            *hist.last().unwrap() < 0.15,
+            "SAM: {}",
+            hist.last().unwrap()
+        );
+        assert_xor(&model, &x);
+    }
+
+    #[test]
     fn adamw_y_lion_convergen_en_xor() {
         let (x, y) = xor_data();
 
@@ -1082,6 +1244,7 @@ mod tests {
             patience: 0,
             min_delta: 0.0,
             restore_best: false,
+            sam_rho: 0.0,
         };
         let h_aw = m_aw.train(&x, &y, &cfg_aw);
         assert!(
@@ -1104,6 +1267,7 @@ mod tests {
             patience: 0,
             min_delta: 0.0,
             restore_best: false,
+            sam_rho: 0.0,
         };
         let h_li = m_li.train(&x, &y, &cfg_li);
         assert!(
@@ -1128,6 +1292,7 @@ mod tests {
             patience: 0,
             min_delta: 0.0,
             restore_best: false,
+            sam_rho: 0.0,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(
@@ -1190,6 +1355,7 @@ mod tests {
             patience: 0,
             min_delta: 0.0,
             restore_best: false,
+            sam_rho: 0.0,
         };
         let hist = model.train(&x, &y, &cfg);
         assert!(

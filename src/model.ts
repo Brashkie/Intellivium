@@ -32,6 +32,8 @@ export interface TrainOptions {
   minDelta?: number;
   /** Restaurar los pesos de la mejor época al terminar (checkpoint). */
   restoreBest?: boolean;
+  /** Radio de SAM (Sharpness-Aware Minimization). 0/ausente = desactivado. Típico: 0.05. */
+  samRho?: number;
   /** Hiperparámetros de Adam/AdamW (opcionales). */
   beta1?: number;
   beta2?: number;
@@ -119,6 +121,7 @@ export class Model {
       patience: opts.patience,
       minDelta: opts.minDelta,
       restoreBest: opts.restoreBest,
+      samRho: opts.samRho,
       beta1: opts.beta1,
       beta2: opts.beta2,
       eps: opts.eps,

@@ -396,4 +396,23 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
     });
     expect((hLi.at(-1) ?? 1) < hLi[0]).toBe(true);
   });
+
+  it("entrena XOR con SAM (samRho)", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const model = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const hist = await model.train(X, y, {
+      epochs: 2000,
+      lr: 0.03,
+      optimizer: "adam",
+      loss: "bce",
+      samRho: 0.05,
+    });
+    expect(hist.at(-1) ?? 1).toBeLessThan(0.2);
+  });
 });

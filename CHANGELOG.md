@@ -6,6 +6,18 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-03
+### Added
+- **Fase 3.5 — SAM (Sharpness-Aware Minimization)** vía `samRho`. Envuelve al
+  optimizador base con dos pasadas por batch: (1) perturba los pesos hacia el
+  punto más adverso del vecindario (ε = ρ·g/‖g‖), (2) calcula el gradiente ahí
+  y actualiza con él. Busca mínimos planos → mejor generalización. Combinable
+  con cualquier optimizador (`adam` + `samRho`, `adamw` + `samRho`, etc.).
+- Tests de SAM (Rust y TS).
+### Changed
+- `step()` refactorizado en helpers reutilizables (`fw_bw`, `apply_bn_updates`,
+  `clip_scale`, `apply_all`) + `step_plain`/`step_sam`.
+
 ## [0.12.0] - 2026-09-12
 ### Added
 - **Fase 3.5 — Optimizadores extensibles.** El optimizador pasa de un `enum`
