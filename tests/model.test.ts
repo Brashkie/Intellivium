@@ -415,4 +415,22 @@ describe.skipIf(!nativeAvailable)("Model (integración, requiere .node)", () => 
     });
     expect(hist.at(-1) ?? 1).toBeLessThan(0.2);
   });
+
+  it("entrena XOR con Yogi", async () => {
+    const X = tensor([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ]);
+    const y = tensor([[0], [1], [1], [0]]);
+    const model = new Model([dense(2, 8, "tanh"), dense(8, 1, "sigmoid")]);
+    const hist = await model.train(X, y, {
+      epochs: 2000,
+      lr: 0.03,
+      optimizer: "yogi",
+      loss: "bce",
+    });
+    expect(hist.at(-1) ?? 1).toBeLessThan(0.2);
+  });
 });

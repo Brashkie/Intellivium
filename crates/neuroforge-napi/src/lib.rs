@@ -33,7 +33,7 @@ pub struct LayerSpec {
 pub struct JsTrainConfig {
     pub epochs: u32,
     pub lr: f64,
-    /// "sgd" | "adam" (default: "sgd")
+    /// "sgd" | "adam" | "adamw" | "lion" | "yogi" (default: "sgd")
     pub optimizer: Option<String>,
     /// "mse" | "bce" (default: "mse")
     pub loss: Option<String>,

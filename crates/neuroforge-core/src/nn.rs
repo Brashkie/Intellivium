@@ -228,8 +228,51 @@ impl Optimizer for Lion {
     }
 }
 
+/// Yogi (Zaheer et al. 2018): variante de Adam que controla el crecimiento del
+/// segundo momento. En vez de `v = β₂·v + (1-β₂)·g²` (EMA), usa
+/// `v = v - (1-β₂)·sign(v - g²)·g²`, evitando que `v` crezca demasiado rápido
+/// ante gradientes ruidosos (pasos efectivos más estables).
+#[derive(Debug, Clone, Copy)]
+pub struct Yogi {
+    pub beta1: f32,
+    pub beta2: f32,
+    pub eps: f32,
+}
+
+impl Default for Yogi {
+    fn default() -> Self {
+        Yogi {
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-3,
+        }
+    }
+}
+
+impl Optimizer for Yogi {
+    fn step(
+        &self,
+        p: &mut Array2<f32>,
+        g: &Array2<f32>,
+        m: &mut Array2<f32>,
+        v: &mut Array2<f32>,
+        lr: f32,
+        t: i32,
+    ) {
+        *m = &(&*m * self.beta1) + &(g * (1.0 - self.beta1));
+        let g2 = g * g;
+        // v = v - (1-β₂)·sign(v - g²)·g²
+        let diff = &*v - &g2;
+        let sign = diff.mapv(f32::signum);
+        *v = &*v - &(&(&sign * &g2) * (1.0 - self.beta2));
+        let mhat = &*m / (1.0 - self.beta1.powi(t));
+        let vhat = &*v / (1.0 - self.beta2.powi(t));
+        *p = &*p - &((mhat / (vhat.mapv(f32::sqrt) + self.eps)) * lr);
+    }
+}
+
 /// Construye un optimizador por nombre (para el binding N-API / API de TS).
-/// Nombres: "sgd", "adam", "adamw", "lion".
+/// Nombres: "sgd", "adam", "adamw", "lion", "yogi".
 pub fn optimizer_from_name(
     name: &str,
     beta1: Option<f32>,
@@ -253,6 +296,11 @@ pub fn optimizer_from_name(
             beta1: beta1.unwrap_or(0.9),
             beta2: beta2.unwrap_or(0.99),
             weight_decay: weight_decay.unwrap_or(0.0),
+        }),
+        "yogi" => Box::new(Yogi {
+            beta1: beta1.unwrap_or(0.9),
+            beta2: beta2.unwrap_or(0.999),
+            eps: eps.unwrap_or(1e-3),
         }),
         _ => Box::new(Sgd),
     }
@@ -1192,6 +1240,9 @@ mod tests {
         assert!(
             format!("{:?}", optimizer_from_name("lion", None, None, None, None)).contains("Lion")
         );
+        assert!(
+            format!("{:?}", optimizer_from_name("yogi", None, None, None, None)).contains("Yogi")
+        );
         assert!(matches!(
             Activation::from_str("softmax"),
             Activation::Softmax
@@ -1274,6 +1325,33 @@ mod tests {
             h_li.last().unwrap() < h_li.first().unwrap(),
             "Lion no bajó la loss"
         );
+    }
+
+    #[test]
+    fn yogi_converge_en_xor() {
+        let (x, y) = xor_data();
+        let mut rng = Rng::new(7);
+        let mut model = xor_model(&mut rng);
+        let cfg = TrainConfig {
+            epochs: 2000,
+            lr: 0.03,
+            loss: Loss::Bce,
+            optimizer: Box::<Yogi>::default(),
+            batch_size: 0,
+            grad_clip: 0.0,
+            lr_decay: 1.0,
+            patience: 0,
+            min_delta: 0.0,
+            restore_best: false,
+            sam_rho: 0.0,
+        };
+        let hist = model.train(&x, &y, &cfg);
+        assert!(
+            *hist.last().unwrap() < 0.15,
+            "Yogi: {}",
+            hist.last().unwrap()
+        );
+        assert_xor(&model, &x);
     }
 
     #[test]

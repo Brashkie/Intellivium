@@ -10,13 +10,13 @@ import {
 import { type NativeModelInstance, getNativeModel } from "./native.js";
 import { Tensor } from "./tensor.js";
 
-export type OptimizerName = "sgd" | "adam" | "adamw" | "lion";
+export type OptimizerName = "sgd" | "adam" | "adamw" | "lion" | "yogi";
 export type LossName = "mse" | "bce" | "cce" | "mae" | "huber";
 
 export interface TrainOptions {
   epochs?: number;
   lr?: number;
-  /** "sgd" | "adam" | "adamw" | "lion" (default: "sgd") */
+  /** "sgd" | "adam" | "adamw" | "lion" | "yogi" (default: "sgd") */
   optimizer?: OptimizerName;
   /** "mse" | "bce" | "cce" (default: "mse") */
   loss?: LossName;

@@ -6,6 +6,17 @@ versionado [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-19
+### Added
+- **Fase 3.5 — Yogi** (`optimizer: "yogi"`, Zaheer et al. 2018). Variante de Adam
+  que controla el crecimiento del segundo momento: `v = v - (1-β₂)·sign(v-g²)·g²`
+  en vez del EMA exponencial, dando pasos efectivos más estables ante gradientes
+  ruidosos. Combinable con SAM (`yogi` + `samRho`).
+- Tests de Yogi (Rust y TS).
+### Notes
+- Con esto la **Fase 3.5 (Optimización Avanzada) queda completa** ✅: trait
+  abierto + AdamW + Lion + SAM + Yogi.
+
 ## [0.13.0] - 2026-10-03
 ### Added
 - **Fase 3.5 — SAM (Sharpness-Aware Minimization)** vía `samRho`. Envuelve al

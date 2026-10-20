@@ -45,7 +45,7 @@ It draws inspiration from PyTorch, TensorFlow and Flux.jl, but makes a deliberat
 
 ## 🚦 Project Status
 
-> **v0.13.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
+> **v0.14.0 · on npm.** The engine is tested and trains real models. It's still pre-1.0, so the API may evolve — and the grand vision further down is a roadmap, not a current claim.
 
 **Available today** ✅
 - Reverse-mode automatic differentiation (Wengert tape, no `Rc<RefCell>`).
@@ -249,7 +249,7 @@ The engine is the foundation. Everything below is the long-term plan, phase by p
 - [ ] LSTM
 - [ ] GRU
 
-### Phase 3.5 — Advanced Optimization · 🟡
+### Phase 3.5 — Advanced Optimization · ✅
 *Near-term, fits the current 2D engine. Turns "compose your own algorithm" from slogan into reality.*
 
 **Extensible optimizers**
@@ -258,7 +258,7 @@ The engine is the foundation. Everything below is the long-term plan, phase by p
 **New-generation optimizers**
 - [x] AdamW (decoupled weight decay)
 - [x] Lion (sign-momentum; ~33–50% less optimizer state than Adam)
-- [ ] Yogi (controlled effective learning rate on noisy gradients)
+- [x] Yogi (controlled effective learning rate on noisy gradients)
 
 **Sharpness-aware training**
 - [x] SAM (Sharpness-Aware Minimization — flatter minima, better generalization)
